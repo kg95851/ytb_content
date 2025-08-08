@@ -1,8 +1,15 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 export default defineConfig({
-  root: '.', // index.html이 루트에 있는 경우
+  root: '.', // 프로젝트 루트
   build: {
-    outDir: 'dist'
-  }
+    outDir: 'dist', // 빌드 결과물이 저장될 폴더
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        admin: resolve(__dirname, 'admin.html'),
+      },
+    },
+  },
 });
