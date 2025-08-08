@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>콘텐츠 관리자</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div id="login-view">
+        <div class="login-box">
+            <h2>관리자 로그인</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="email">이메일</label>
+                    <input type="email" id="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary full-width">로그인</button>
+                <p id="login-error" class="error-message" style="margin-top: 1rem; text-align: center;"></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="admin-panel" class="hidden">
+        <div class="container">
+            <header class="admin-header">
+                <h2>콘텐츠 관리 대시보드</h2>
+                <button id="logout-btn" class="btn btn-danger">로그아웃</button>
+            </header>
+            
+            <div class="tabs">
+                <button class="tab-link active" data-tab="data-management">데이터 관리</button>
+                <button class="tab-link" data-tab="upload-data">데이터 업로드</button>
+            </div>
+
+            <div id="data-management" class="tab-content active">
+                <div class="data-toolbar">
+                    <button id="bulk-delete-btn" class="btn btn-danger">선택 삭제</button>
+                    <input type="text" id="data-search-input" placeholder="제목, 채널명 등으로 검색...">
+                </div>
+                <div id="data-table-container">
+                    </div>
+            </div>
+
+            <div id="upload-data" class="tab-content">
+                <div class="upload-box">
+                    <h2>데이터 업로드</h2>
+                    <p>CSV 또는 XLSX 파일을 드래그하거나 선택하여 데이터를 추가/업데이트하세요.</p>
+                    <div id="file-drop-area">
+                        <label for="file-input" class="file-drop-label">
+                            <span class="file-button">
+                                <span class="file-icons">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M12 12v9"></path><path d="m16 16-4-4-4 4"></path></svg>
+                                </span>
+                                파일 선택하기
+                            </span>
+                            <span class="drop-message">또는 파일을 여기로 드래그하세요</span>
+                        </label>
+                        <input type="file" id="file-input" accept=".csv, .xlsx" hidden>
+                    </div>
+                    <div id="file-name-display"></div>
+                    <button id="upload-btn" class="btn btn-primary full-width">업로드</button>
+                    <p id="upload-status" style="margin-top: 1rem; text-align: center;"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h2 class="modal-title">데이터 수정</h2>
+                <button id="close-edit-modal-btn" class="close-btn">&times;</button>
+            </header>
+            <form id="edit-form"></form>
+            <div class="modal-actions">
+                <button id="cancel-edit-btn" class="btn btn-danger">취소</button>
+                <button id="save-edit-btn" class="btn btn-primary">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-content small">
+            <h2 id="confirm-modal-title">삭제 확인</h2>
+            <p id="confirm-modal-message">정말로 삭제하시겠습니까?</p>
+            <div class="modal-actions">
+                <button id="cancel-delete-btn" class="btn btn-danger">취소</button>
+                <button id="confirm-delete-btn" class="btn btn-primary">삭제</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="scripts/admin.js"></script>
+</body>
+</html>

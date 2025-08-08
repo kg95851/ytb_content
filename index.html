@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>콘텐츠 라이브러리</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="container">
+        <header class="main-header">
+            <h1>콘텐츠 라이브러리</h1>
+            <p>다양한 콘텐츠를 손쉽게 찾아보세요.</p>
+        </header>
+
+        <div class="filter-container">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="제목, 채널, 카테고리, 원본 등으로 검색...">
+            </div>
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="form-type-filter">폼 유형</label>
+                    <select id="form-type-filter">
+                        <option value="all">전체</option>
+                        <option value="롱폼">롱폼</option>
+                        <option value="숏폼">숏폼</option>
+                    </select>
+                </div>
+                <div class="filter-group date-range">
+                    <label>게시일</label>
+                    <div>
+                        <input type="date" id="start-date-filter">
+                        <span>~</span>
+                        <input type="date" id="end-date-filter">
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="sort-filter">정렬</label>
+                    <select id="sort-filter">
+                        <option value="date_desc">최신순</option>
+                        <option value="views_desc">조회수 높은 순</option>
+                        <option value="views_asc">조회수 낮은 순</option>
+                        <option value="subs_desc">구독자 많은 순</option>
+                        <option value="subs_asc">구독자 적은 순</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <main id="video-grid">
+            </main>
+        
+        <div id="pagination-container" class="pagination-container">
+            </div>
+
+    </div>
+
+    <script type="module" src="scripts/app.js"></script>
+</body>
+</html>
