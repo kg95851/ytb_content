@@ -57,7 +57,20 @@ document.getElementById('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
-    signInWithEmailAndPassword(auth, email, password).catch(error => {
+    
+    // 1. 입력된 이메일 값이 올바른지 콘솔에 출력
+    console.log("로그인 시도 이메일:", email);
+
+    signInWithEmailAndPassword(auth, email, password)
+      .then((userCredential) => {
+        // 로그인이 성공한 경우
+        console.log("로그인 성공!", userCredential.user);
+      })
+      .catch(error => {
+        // 2. 로그인 실패 시 Firebase가 보낸 실제 에러 객체를 콘솔에 출력
+        console.error("Firebase에서 받은 실제 에러:", error);
+
+        // 화면에 에러 메시지 표시
         document.getElementById('login-error').textContent = '이메일 또는 비밀번호가 잘못되었습니다.';
     });
 });
