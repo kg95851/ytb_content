@@ -29,6 +29,12 @@ except Exception:
 
 app = Flask(__name__)
 
+DEFAULT_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'ko,en;q=0.9',
+    'Connection': 'keep-alive',
+}
 
 def _best_caption_track(info: Dict[str, Any]) -> Dict[str, Any]:
     subtitles = info.get('subtitles') or {}
@@ -171,9 +177,13 @@ def transcript_root():
         if not cand or not cand.get('url'):
             return jsonify({ 'error': 'caption not found' }), 404
 
-        r = requests.get(cand['url'], timeout=15)
+        r = requests.get(cand['url'], headers=DEFAULT_HEADERS, timeout=15)
         if r.status_code != 200:
             return jsonify({ 'error': 'caption fetch failed', 'status': r.status_code }), 502
+        # Google 차단 페이지 대응
+        ctype = (r.headers.get('content-type') or '').lower()
+        if 'text/html' in ctype and ('sorry' in r.text.lower() or '<html' in r.text.lower()):
+            return jsonify({ 'error': 'blocked_by_provider' }), 429
 
         text = _to_plain_text(r.text, cand.get('ext'))
         return jsonify({ 'text': text, 'lang': cand.get('lang'), 'ext': cand.get('ext') }), 200
