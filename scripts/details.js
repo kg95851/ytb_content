@@ -101,7 +101,7 @@ const renderDetails = (video) => {
                     ${renderDetailItem('한국 카테고리', kr_categories)}
                     ${renderDetailItem('영문 카테고리', en_categories)}
                     ${renderDetailItem('중국 카테고리', cn_categories)}
-                    ${renderDetailItem('분석 원문', video.analysis_full ? '<pre style="white-space:pre-wrap;">' + escapeHtml(video.analysis_full) + '</pre>' : '')}
+                    ${renderDetailItem('분석 원문', video.analysis_full ? `<pre class="analysis-raw-box">${escapeHtml(video.analysis_full)}</pre>` : '', true)}
                 </div>
             </div>
         </div>
@@ -141,9 +141,10 @@ const renderDetails = (video) => {
 };
 
 // 상세 항목 렌더링 헬퍼
-const renderDetailItem = (label, value) => {
+const renderDetailItem = (label, value, fullWidth = false) => {
+    const wrapperClass = fullWidth ? 'detail-item analysis-full' : 'detail-item';
     return `
-        <div class="detail-item">
+        <div class="${wrapperClass}">
             <span class="detail-label">${label}</span>
             <span class="detail-value">${value || '없음'}</span>
         </div>
