@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>콘텐츠 상세 정보</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="container">
+        <header class="details-page-header">
+            <!-- 새 창으로 열렸으므로 이전 페이지 버튼 또는 창 닫기 버튼 제공 -->
+            <button onclick="window.history.back();" class="btn btn-primary">← 이전 페이지로</button>
+            <button onclick="window.close();" class="btn btn-danger">창 닫기</button>
+        </header>
+
+        <main id="details-content">
+            <!-- 상세 정보가 JavaScript에 의해 로드됩니다 -->
+            <p class="info-message">데이터를 불러오는 중...</p>
+        </main>
+    </div>
+
+    <script type="module" src="./scripts/details.js"></script>
+</body>
+</html>
