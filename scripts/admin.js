@@ -27,6 +27,11 @@ const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const runAnalysisSelectedBtn = document.getElementById('run-analysis-selected-btn');
 const runAnalysisAllBtn = document.getElementById('run-analysis-all-btn');
 const analysisStatus = document.getElementById('analysis-status');
+// 상단 고정 배너 요소
+const analysisBanner = document.getElementById('analysis-banner');
+const analysisBannerText = document.getElementById('analysis-banner-text');
+const analysisProgressBar = document.getElementById('analysis-progress-bar');
+const analysisLogEl = document.getElementById('analysis-log');
 const editModal = document.getElementById('edit-modal');
 const editForm = document.getElementById('edit-form');
 const saveEditBtn = document.getElementById('save-edit-btn');
@@ -338,7 +343,7 @@ if (saveTranscriptServerBtn) {
 // ---------------- Analysis Runner ----------------
 async function fetchTranscriptByUrl(youtubeUrl) {
     const server = getTranscriptServerUrl();
-    const res = await fetch(server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl));
+    const res = await fetch(server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en');
     if (!res.ok) throw new Error('Transcript fetch failed: ' + res.status);
     const data = await res.json();
     // 기대 형식: { text: "..." }
@@ -358,7 +363,86 @@ function buildAnalysisPrompt() {
 }
 
 function buildDopamineGraphPrompt() {
-    return '다음 대본을 문장별로 분해하여 사람들의 궁금증/도파민 유발 정도를 1~10 레벨로 평가하고, [문장, 레벨, 이유] 형태의 JSON 배열로 출력하세요.';
+    return '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.';
+}
+
+function buildDopamineBatchPrompt(sentences) {
+    const header = buildDopamineGraphPrompt();
+    // 문장 배열(JSON)로 제공
+    return header + '\n\n문장 배열:\n' + JSON.stringify(sentences);
+}
+
+function splitTranscriptIntoSentences(text) {
+    if (!text) return [];
+    // 줄바꿈 정리
+    const normalized = String(text).replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
+    // 문장 단위 분할: 마침표/물음표/느낌표/한국어 종결 패턴 및 줄바꿈 기준
+    const raw = normalized
+        .split(/(?<=[\.\?\!])\s+|\n+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    // 너무 긴 문장 추가 분해(쉼표 기준)
+    const sentences = [];
+    for (const s of raw) {
+        if (s.length > 400) {
+            const parts = s.split(/,\s+/);
+            for (const p of parts) if (p) sentences.push(p);
+        } else {
+            sentences.push(s);
+        }
+    }
+    return sentences;
+}
+
+async function analyzeDopamineByBatches(sentences, onLog) {
+    const batchSize = 30;
+    const results = [];
+    let batchIndex = 0;
+    for (let i = 0; i < sentences.length; i += batchSize) {
+        batchIndex++;
+        const batch = sentences.slice(i, i + batchSize);
+        onLog && onLog(`도파민 분석 배치 ${batchIndex} (${i + 1}~${Math.min(i + batch.length, sentences.length)}/${sentences.length})`);
+        const text = await callGeminiAPI(buildDopamineBatchPrompt(batch), '');
+        let arr = [];
+        try {
+            arr = JSON.parse(text);
+        } catch {
+            const m = text.match(/\[([\s\S]*?)\]/);
+            if (m) {
+                try { arr = JSON.parse('[' + m[1] + ']'); } catch {}
+            }
+        }
+        if (Array.isArray(arr)) {
+            for (const item of arr) {
+                const sentence = (item.sentence || item.text || '').toString();
+                const levelNum = Number(item.level ?? item.score ?? 0);
+                const level = isFinite(levelNum) ? Math.max(1, Math.min(10, Math.round(levelNum))) : 1;
+                const reason = (item.reason || item.why || '').toString();
+                if (sentence) results.push({ sentence, level, reason });
+            }
+        }
+    }
+    return results;
+}
+
+function showAnalysisBanner(message) {
+    if (analysisBanner) analysisBanner.classList.remove('hidden');
+    if (analysisBannerText) analysisBannerText.textContent = message || '';
+    if (analysisProgressBar) analysisProgressBar.style.width = '0%';
+    if (analysisLogEl) analysisLogEl.textContent = '';
+}
+
+function updateAnalysisProgress(done, total, suffixText) {
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
+    if (analysisBannerText) analysisBannerText.textContent = `진행률 ${done}/${total} (${pct}%)` + (suffixText ? ` — ${suffixText}` : '');
+}
+
+function appendAnalysisLog(line) {
+    if (!analysisLogEl) return;
+    const time = new Date().toLocaleTimeString();
+    analysisLogEl.textContent += `[${time}] ${line}\n`;
+    analysisLogEl.scrollTop = analysisLogEl.scrollHeight;
 }
 
 async function callGeminiAPI(systemPrompt, userContent) {
@@ -385,23 +469,23 @@ async function callGeminiAPI(systemPrompt, userContent) {
 async function analyzeOneVideo(video) {
     const youtubeUrl = video.youtube_url;
     if (!youtubeUrl) throw new Error('YouTube URL 없음');
+    appendAnalysisLog(`(${video.id}) 자막 추출 시작`);
     const transcript = await fetchTranscriptByUrl(youtubeUrl);
+    appendAnalysisLog(`(${video.id}) 자막 길이 ${transcript.length}자`);
+    const sentences = splitTranscriptIntoSentences(transcript);
+    appendAnalysisLog(`(${video.id}) 문장 분해 ${sentences.length}개`);
 
     // 5-1 카테고리 산출
+    appendAnalysisLog(`(${video.id}) 카테고리 분석 시작`);
     const categoriesText = await callGeminiAPI(buildCategoryPrompt(), transcript);
 
     // 5-2 소재/후킹/기승전결 등 템플릿 분석
+    appendAnalysisLog(`(${video.id}) 템플릿 분석 시작`);
     const analysisText = await callGeminiAPI(buildAnalysisPrompt(), transcript);
 
     // 3 도파민 그래프 분석(JSON)
-    const dopText = await callGeminiAPI(buildDopamineGraphPrompt(), transcript);
-    let dopamineGraph = [];
-    try { dopamineGraph = JSON.parse(dopText); } catch { /* 모델이 마크다운 코드를 섞는 경우 정리 시도 */
-        const jsonMatch = dopText.match(/\[([\s\S]*?)\]/);
-        if (jsonMatch) {
-            try { dopamineGraph = JSON.parse('[' + jsonMatch[1] + ']'); } catch {}
-        }
-    }
+    appendAnalysisLog(`(${video.id}) 도파민 분석 시작`);
+    const dopamineGraph = await analyzeDopamineByBatches(sentences, appendAnalysisLog);
 
     // 간단 파싱 규칙(유연 처리): 카테고리 키워드 추출
     const updated = { ...video };
@@ -431,13 +515,14 @@ async function analyzeOneVideo(video) {
     updated.hooking = extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
     updated.narrative_structure = extractLine(/기승전결\s*구조\s*[:：]\s*(.+)/i, analysisText) || updated.narrative_structure;
 
-    return { updated, raw: { categoriesText, analysisText, dopText, transcript } };
+    return { updated, raw: { categoriesText, analysisText, dopamineGraph, transcript } };
 }
 
 async function runAnalysisForIds(ids) {
     analysisStatus.style.display = 'block';
     analysisStatus.style.color = '';
     analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`;
+    showAnalysisBanner(`총 ${ids.length}개 분석 시작`);
     let done = 0, failed = 0;
     for (const id of ids) {
         try {
@@ -445,19 +530,24 @@ async function runAnalysisForIds(ids) {
             const snap = await getDoc(ref);
             if (!snap.exists()) { failed++; continue; }
             const video = { id, ...snap.data() };
+            appendAnalysisLog(`(${id}) 분석 시작`);
             const { updated } = await analyzeOneVideo(video);
             const payload = { ...updated };
             delete payload.id;
             await updateDoc(ref, payload);
             done++;
             analysisStatus.textContent = `진행중... ${done}/${ids.length} 완료`;
+            updateAnalysisProgress(done, ids.length, `마지막 완료: ${video.title || id}`);
+            appendAnalysisLog(`(${id}) 저장 완료`);
         } catch (e) {
             console.error('분석 실패', id, e);
             failed++;
+            appendAnalysisLog(`(${id}) 오류: ${e.message || e}`);
         }
     }
     analysisStatus.style.color = failed ? 'orange' : 'green';
     analysisStatus.textContent = `분석 완료: 성공 ${done}, 실패 ${failed}`;
+    updateAnalysisProgress(ids.length, ids.length, `성공 ${done}, 실패 ${failed}`);
     await fetchAndDisplayData();
 }
 
