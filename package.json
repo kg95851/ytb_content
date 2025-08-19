@@ -5,10 +5,18 @@
     "scripts": {
       "dev": "vite",
       "build": "vite build",
-      "preview": "vite preview"
+      "preview": "vite preview",
+      "transcripts": "node server/transcript-server.js"
     },
+    "type": "module",
     "devDependencies": {
       "vite": "^5.0.0"
+    },
+    "dependencies": {
+      "cors": "^2.8.5",
+      "express": "^4.19.2",
+      "node-fetch": "^3.3.2",
+      "yt-dlp-exec": "^1.5.0"
     }
   }
   
