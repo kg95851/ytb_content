@@ -472,6 +472,7 @@ async function analyzeOneVideo(video) {
     appendAnalysisLog(`(${video.id}) 자막 추출 시작`);
     const transcript = await fetchTranscriptByUrl(youtubeUrl);
     appendAnalysisLog(`(${video.id}) 자막 길이 ${transcript.length}자`);
+    appendAnalysisLog(`(${video.id}) 자막 미리보기: ${transcript.slice(0, 120).replace(/\n/g, ' ')}${transcript.length > 120 ? '...' : ''}`);
     const sentences = splitTranscriptIntoSentences(transcript);
     appendAnalysisLog(`(${video.id}) 문장 분해 ${sentences.length}개`);
 
@@ -493,6 +494,7 @@ async function analyzeOneVideo(video) {
     updated.analysis_full = analysisText;
     updated.dopamine_graph = dopamineGraph;
     updated.analysis_transcript_len = transcript.length;
+    updated.transcript_text = transcript;
 
     // 사용자가 기대한 필드 매핑을 위해 키워드 탐색(간단)
     function extractLine(regex, text) {
