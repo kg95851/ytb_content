@@ -164,9 +164,15 @@ def transcript_root():
             'skip_download': True,
             'nocheckcertificate': True,
             'noprogress': True,
+            'noplaylist': True,
+            'geo_bypass': True,
+            'http_headers': DEFAULT_HEADERS,
         }
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        try:
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            return jsonify({ 'error': 'extract_error', 'detail': str(e) }), 502
         audio_url = _pick_audio_url(info)
         if not audio_url:
             return jsonify({ 'error': 'audio_not_found' }), 404
