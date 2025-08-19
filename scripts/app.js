@@ -22,6 +22,7 @@ let allVideos = [];
 let filteredVideos = [];
 let currentPage = 1;
 const itemsPerPage = 100;
+// 도파민 그래프가 있을 경우 상세 페이지 링크 옆에 배지 표시
 
 // Firestore에서 비디오 데이터 가져오기
 const fetchVideos = async () => {
@@ -120,6 +121,7 @@ const displayVideosPage = () => {
         const category = video.kr_category_large || '없음';
 
         // '자세히 보기' 링크 추가 (target="_blank"로 새 창 열기)
+        const hasDopamine = Array.isArray(video.dopamine_graph) && video.dopamine_graph.length > 0;
         return `
             <tr>
                 <td>${thumbnailHTML}</td>
@@ -130,6 +132,7 @@ const displayVideosPage = () => {
                 <td>${category}</td>
                 <td>
                     <a href="details.html?id=${video.id}" class="btn btn-details" target="_blank">자세히 보기</a>
+                    ${hasDopamine ? '<span class="group-tag" style="margin-left:6px; background:#10b981;">Graph</span>' : ''}
                 </td>
             </tr>
         `;
