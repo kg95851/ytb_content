@@ -202,6 +202,9 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
     padding-bottom: 0.5rem;
 }
 
+/* 도파민 그래프 영역 */
+#dopamine-graph-section h2 { margin-bottom: 0.75rem; }
+
 .details-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
