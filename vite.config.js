@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         admin: resolve(__dirname, 'admin.html'),
+        details: resolve(__dirname, 'details.html'), // 'details.html' 추가
       },
     },
   },
