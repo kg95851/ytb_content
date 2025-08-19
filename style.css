@@ -217,6 +217,18 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
     border-radius: var(--radius);
     border: 1px solid var(--border-color);
 }
+.detail-item.analysis-full {
+    grid-column: 1 / -1; /* 전체 너비 차지 */
+}
+.analysis-raw-box {
+    max-height: 280px;
+    overflow: auto;
+    white-space: pre; /* 가로 스크롤 허용 */
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px;
+}
 
 .detail-label {
     font-weight: 600;
