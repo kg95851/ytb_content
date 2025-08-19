@@ -21,12 +21,15 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .hidden { display: none !important; }
 
 /* --- 버튼 스타일 --- */
-.btn { padding: 0.6rem 1.2rem; border: 1px solid transparent; border-radius: var(--radius); font-weight: 600; cursor: pointer; transition: all 0.2s ease-in-out; font-size: 14px; }
+.btn { padding: 0.6rem 1.2rem; border: 1px solid transparent; border-radius: var(--radius); font-weight: 600; cursor: pointer; transition: all 0.2s ease-in-out; font-size: 14px; text-decoration: none; display: inline-block; text-align: center; }
 .btn-primary { background-color: var(--primary-color); color: white; }
 .btn-primary:hover { background-color: var(--primary-hover); }
 .btn-danger { background-color: #718096; color: white; } /* 삭제 버튼은 다른 색으로 */
 .btn-danger:hover { background-color: #4a5568; }
 .btn.full-width { width: 100%; }
+/* 자세히 보기 버튼 스타일 추가 */
+.btn-details { background-color: var(--primary-color); color: white; padding: 0.5rem 1rem; font-size: 13px; }
+.btn-details:hover { background-color: var(--primary-hover); }
 
 /* --- 사용자 페이지 (index.html) --- */
 .main-header { text-align: center; margin-bottom: 2.5rem; }
@@ -40,65 +43,13 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .filter-group select, .filter-group input[type="date"] { padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius); background-color: #fff; }
 .filter-group.date-range div { display: flex; align-items: center; gap: 0.5rem; }
 
-#video-grid { 
-    display: grid; 
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
-    gap: 1.5rem; 
-    align-items: start; /* 각 카드의 높이를 독립적으로 설정 */
-}
+/* 기존 카드 뷰 스타일(#video-grid, .video-card 등)은 제거됨 */
 
-.video-card { background-color: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; flex-direction: column; }
-.video-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
-.card-thumbnail { position: relative; }
-.card-thumbnail img { width: 100%; height: 180px; object-fit: cover; display: block; }
-.no-thumbnail {
-    width: 100%;
-    height: 180px;
-    background-color: #f0f0f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-secondary);
-    font-size: 1rem;
-}
-.youtube-link { position: absolute; top: 10px; right: 10px; background-color: rgba(0,0,0,0.6); color: white; padding: 5px 10px; border-radius: 20px; text-decoration: none; font-size: 12px; display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.2s ease; }
-.video-card:hover .youtube-link { opacity: 1; }
-.card-content { padding: 1rem; display: flex; flex-direction: column; flex-grow: 1; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-.channel-name { font-weight: 600; }
-.group-tag { background-color: var(--primary-color); color: white; font-size: 12px; padding: 2px 8px; border-radius: 10px; }
-.card-title { font-size: 1.1rem; margin-bottom: 1rem; font-weight: 600; }
-.card-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem; }
-.meta-item { text-align: center; }
-.meta-label { font-size: 0.8rem; color: var(--text-secondary); display: block; }
-.meta-value { font-weight: 600; }
-.card-category { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem; }
-
-.card-extra-info {
-    background-color: #f9f9f9;
-    padding: 0 0.75rem; 
-    border-radius: var(--radius);
-    font-size: 0.9rem;
-    max-height: 0;
-    opacity: 0;
-    overflow: hidden;
-    transition: max-height 0.5s ease-out, opacity 0.5s ease-out, padding 0.5s ease-out;
-    margin-bottom: 0;
-}
-
-.video-card.expanded .card-extra-info {
-    max-height: 200px; /* 충분한 높이 */
-    opacity: 1;
-    padding: 0.75rem;
-    margin-bottom: 1rem;
-}
-
-.extra-item { margin-bottom: 0.25rem; }
-.more-info-btn { margin-top: auto; background-color: var(--border-color); color: var(--text-primary); border: none; padding: 8px; width: 100%; border-radius: var(--radius); cursor: pointer; transition: background-color 0.2s; }
-.more-info-btn:hover { background-color: #d8dee9; }
 .info-message, .error-message { text-align: center; padding: 2rem; color: var(--text-secondary); }
+.group-tag { background-color: var(--primary-color); color: white; font-size: 12px; padding: 2px 8px; border-radius: 10px; display: inline-block; }
 
-/* --- 페이지네이션 스타일 --- */
+
+/* --- 페이지네이션 스타일 (유지) --- */
 .pagination-container {
     display: flex;
     justify-content: center;
@@ -132,7 +83,159 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 }
 
 
-/* --- 관리자 페이지 (admin.html) --- */
+/* --- 관리자 & 사용자 공유 테이블 스타일 (수정 및 추가) --- */
+#video-table-container {
+    background-color: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden; /* 테이블 모서리 둥글게 */
+}
+
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 1rem; border-bottom: 1px solid var(--border-color); text-align: left; vertical-align: middle; }
+
+/* 사용자 페이지 테이블 특정 스타일 */
+.data-table th:first-child, .data-table td:first-child {
+    width: 120px; /* 썸네일 열 너비 */
+    text-align: center;
+}
+
+.data-table th { background-color: #f9fafb; font-size: 0.9rem; color: var(--text-secondary);
+    /* 헤더 텍스트 스타일 개선 */
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* 썸네일 스타일 개선 */
+.table-thumbnail { 
+    width: 100px; 
+    height: 56px; /* 16:9 비율 유지 */
+    object-fit: cover; 
+    border-radius: 4px; 
+    display: block;
+    margin: 0 auto;
+}
+
+/* 썸네일 없을 때 플레이스홀더 */
+.no-thumbnail-placeholder {
+    width: 100px;
+    height: 56px;
+    background-color: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    border-radius: 4px;
+    margin: 0 auto;
+}
+
+.table-title { font-weight: 500; }
+/* 테이블 행 호버 효과 추가 */
+.data-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+
+/* --- 상세 페이지 (details.html) 스타일 (신규) --- */
+.details-page-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+}
+
+.details-container {
+    background-color: var(--card-bg);
+    padding: 2rem;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 3rem;
+}
+
+.video-player-container {
+    position: relative;
+    padding-bottom: 56.25%; /* 16:9 비율 */
+    height: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    background-color: #000; /* 플레이어 배경색 */
+}
+
+.video-player-container iframe,
+.video-player-container img,
+.video-player-container .no-thumbnail-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.details-info h1 {
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+}
+
+.details-meta-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+    padding: 1rem;
+    background-color: #f9fafb;
+    border-radius: var(--radius);
+}
+
+.details-meta-bar .meta-item strong {
+    color: var(--text-secondary);
+    margin-right: 0.5rem;
+}
+
+.details-info h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 0.5rem;
+}
+
+.details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.detail-item {
+    background-color: #f9fafb;
+    padding: 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+}
+
+.detail-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.detail-value {
+    color: var(--text-primary);
+}
+
+/* 반응형 디자인 (상세 페이지) */
+@media (max-width: 1024px) {
+    .details-container {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+}
+
+
+/* --- 관리자 페이지 (admin.html) 스타일 (유지) --- */
 #login-view { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login-box { width: 100%; max-width: 400px; background: var(--card-bg); padding: 2.5rem; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
 .login-box h2 { text-align: center; margin-bottom: 2rem; }
@@ -159,7 +262,27 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 #bulk-delete-btn { background-color: var(--danger-color); }
 #bulk-delete-btn:hover { background-color: var(--danger-hover); }
 
-/* --- 새로운 파일 첨부 UI 스타일 --- */
+/* 관리자 테이블 특정 스타일 */
+#data-table-container {
+     background-color: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+/* 관리자 테이블 체크박스 열 조정 */
+#data-table-container .data-table th:first-child, 
+#data-table-container .data-table td:first-child { 
+    width: 1%; 
+    text-align: center;
+}
+
+.action-buttons .btn-edit { background-color: #3182ce; }
+.action-buttons .btn-edit:hover { background-color: #2b6cb0; }
+.single-delete-btn { background-color: var(--danger-color) !important; }
+.single-delete-btn:hover { background-color: var(--danger-hover) !important; }
+
+
+/* --- 파일 첨부 UI 스타일 (유지) --- */
 #file-drop-area { border: 2px dashed var(--border-color); border-radius: var(--radius); padding: 1rem; text-align: center; transition: background-color 0.2s ease, border-color 0.2s ease; margin-bottom: 1rem; }
 #file-drop-area.dragover { background-color: #edf2f7; border-color: var(--primary-color); }
 .file-drop-label { display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; }
@@ -171,20 +294,8 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 #file-name-display { margin-bottom: 1rem; font-weight: 500; color: var(--text-primary); display: none; background: #f0f0f0; padding: 0.5rem 1rem; border-radius: var(--radius); }
 #file-name-display.active { display: block; }
 
-/* 데이터 테이블 */
-.data-table { width: 100%; border-collapse: collapse; background: var(--card-bg); box-shadow: var(--shadow); border-radius: var(--radius); overflow: hidden; }
-.data-table th, .data-table td { padding: 1rem; border-bottom: 1px solid var(--border-color); text-align: left; vertical-align: middle; }
-.data-table th:first-child, .data-table td:first-child { width: 1%; text-align: center; } /* 체크박스 열 너비 조정 */
-.data-table th { background-color: #f9fafb; font-size: 0.9rem; color: var(--text-secondary); }
-.table-thumbnail { width: 100px; height: auto; border-radius: 4px; }
-.table-title { font-weight: 500; }
-.action-buttons .btn-edit { background-color: #3182ce; }
-.action-buttons .btn-edit:hover { background-color: #2b6cb0; }
-.single-delete-btn { background-color: var(--danger-color) !important; }
-.single-delete-btn:hover { background-color: var(--danger-hover) !important; }
 
-
-/* 모달 */
+/* 모달 (유지) */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
 .modal-content { background: white; border-radius: var(--radius); box-shadow: var(--shadow-lg); width: 90%; max-width: 700px; display: flex; flex-direction: column; max-height: 90vh; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; border-bottom: 1px solid var(--border-color); }
