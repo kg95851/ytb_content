@@ -246,6 +246,11 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
 .form-group input { width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius); }
 .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+.sticky-banner { position: sticky; top: 0; z-index: 999; background: #fff; border: 1px solid var(--border-color); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; margin-bottom: 1rem; }
+.sticky-banner .banner-row { display:flex; justify-content: space-between; align-items:center; margin-bottom: 0.5rem; }
+.progress { width: 100%; height: 8px; background: #edf2f7; border-radius: 6px; overflow: hidden; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #5a67d8, #10b981); transition: width .2s ease; }
+.analysis-log { margin-top: .5rem; max-height: 180px; overflow: auto; background: #f9fafb; padding: .75rem; border-radius: 6px; border: 1px solid var(--border-color); font-size: 12px; }
 .tabs { border-bottom: 1px solid var(--border-color); margin-bottom: 2rem; }
 .tab-link { padding: 1rem 0; margin-right: 2rem; cursor: pointer; border: none; background: none; font-size: 1rem; color: var(--text-secondary); border-bottom: 3px solid transparent; }
 .tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 600; }
