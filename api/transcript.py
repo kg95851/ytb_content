@@ -36,6 +36,49 @@ DEFAULT_HEADERS = {
     'Connection': 'keep-alive',
 }
 
+def _pick_audio_url(info: Dict[str, Any]) -> str:
+    try:
+        formats = info.get('formats') or []
+        # best audio-only format
+        audio_only = [f for f in formats if f.get('vcodec') in (None, 'none') and f.get('acodec') not in (None, 'none') and f.get('url')]
+        # prefer m4a/webm opus by abr
+        audio_only.sort(key=lambda f: (f.get('abr') or 0), reverse=True)
+        return audio_only[0]['url'] if audio_only else ''
+    except Exception:
+        return ''
+
+def _stt_with_deepgram(audio_url: str, preferred_langs: List[str]) -> Dict[str, Any]:
+    import os
+    api_key = os.getenv('DEEPGRAM_API_KEY')
+    if not api_key or not audio_url:
+        return {}
+    # choose language
+    lang = 'en'
+    for p in preferred_langs:
+        if p.startswith('ko'):
+            lang = 'ko'
+            break
+        if p.startswith('en'):
+            lang = 'en'
+            break
+    payload = { 'url': audio_url }
+    resp = requests.post(
+        f'https://api.deepgram.com/v1/listen?language={lang}&smart_format=true',
+        headers={'Authorization': f'Token {api_key}', 'Content-Type': 'application/json'},
+        data=json.dumps(payload), timeout=60
+    )
+    if resp.status_code != 200:
+        return {}
+    data = resp.json()
+    # extract transcript text
+    try:
+        channels = data.get('results', {}).get('channels', [])
+        alts = channels[0].get('alternatives', []) if channels else []
+        transcript = alts[0].get('transcript', '') if alts else ''
+        return { 'text': transcript, 'lang': lang, 'ext': 'stt' }
+    except Exception:
+        return {}
+
 def _best_caption_track(info: Dict[str, Any]) -> Dict[str, Any]:
     subtitles = info.get('subtitles') or {}
     auto = info.get('automatic_captions') or {}
@@ -175,14 +218,29 @@ def transcript_root():
         if cand is None and collected:
             cand = collected[0]
         if not cand or not cand.get('url'):
+            # 3) STT 폴백 (Deepgram) — 자막이 전혀 없을 때
+            audio_url = _pick_audio_url(info)
+            stt = _stt_with_deepgram(audio_url, preferred_langs)
+            if stt.get('text'):
+                return jsonify(stt), 200
             return jsonify({ 'error': 'caption not found' }), 404
 
         r = requests.get(cand['url'], headers=DEFAULT_HEADERS, timeout=15)
         if r.status_code != 200:
+            # 3) STT 폴백 (Deepgram) — 자막 파일 접근 실패
+            audio_url = _pick_audio_url(info)
+            stt = _stt_with_deepgram(audio_url, preferred_langs)
+            if stt.get('text'):
+                return jsonify(stt), 200
             return jsonify({ 'error': 'caption fetch failed', 'status': r.status_code }), 502
         # Google 차단 페이지 대응
         ctype = (r.headers.get('content-type') or '').lower()
         if 'text/html' in ctype and ('sorry' in r.text.lower() or '<html' in r.text.lower()):
+            # 3) STT 폴백 (Deepgram) — 차단 시 음성 직접 STT 시도
+            audio_url = _pick_audio_url(info)
+            stt = _stt_with_deepgram(audio_url, preferred_langs)
+            if stt.get('text'):
+                return jsonify(stt), 200
             return jsonify({ 'error': 'blocked_by_provider' }), 429
 
         text = _to_plain_text(r.text, cand.get('ext'))
