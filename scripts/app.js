@@ -7,8 +7,10 @@ import { firebaseConfig } from './firebase-config.js';
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// DOM 요소
-const videoGrid = document.getElementById('video-grid');
+// DOM 요소 (video-grid 대신 video-table-body 사용)
+const videoTableBody = document.getElementById('video-table-body');
+// 페이지 이동 시 스크롤 위치 조정을 위해 컨테이너 참조
+const videoTableContainer = document.getElementById('video-table-container');
 const searchInput = document.getElementById('searchInput');
 const formTypeFilter = document.getElementById('form-type-filter');
 const startDateFilter = document.getElementById('start-date-filter');
@@ -23,6 +25,8 @@ const itemsPerPage = 100;
 
 // Firestore에서 비디오 데이터 가져오기
 const fetchVideos = async () => {
+    // 로딩 상태 표시
+    if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="7" class="info-message">데이터를 불러오는 중...</td></tr>';
     try {
         const videosCollection = collection(db, 'videos');
         const q = query(videosCollection);
@@ -31,11 +35,13 @@ const fetchVideos = async () => {
         applyFiltersAndSort();
     } catch (error) {
         console.error("Error fetching videos: ", error);
-        videoGrid.innerHTML = '<p class="error-message">데이터를 불러오는 데 실패했습니다. Firebase 설정을 확인해주세요.</p>';
+        if (videoTableBody) {
+             videoTableBody.innerHTML = '<tr><td colspan="7" class="error-message">데이터를 불러오는 데 실패했습니다. Firebase 설정을 확인해주세요.</td></tr>';
+        }
     }
 };
 
-// 필터링 및 정렬 적용 함수
+// 필터링 및 정렬 적용 함수 (기존 로직 유지)
 const applyFiltersAndSort = () => {
     filteredVideos = [...allVideos];
 
@@ -79,7 +85,10 @@ const applyFiltersAndSort = () => {
             case 'subs_asc': return (a.subscribers_numeric || 0) - (b.subscribers_numeric || 0);
             case 'date_desc':
             default:
-                return new Date(b.date) - new Date(a.date);
+                 // 날짜 비교 시 유효성 검사 강화
+                const dateA = a.date ? new Date(a.date) : new Date(0);
+                const dateB = b.date ? new Date(b.date) : new Date(0);
+                return dateB - dateA;
         }
     });
     
@@ -88,69 +97,45 @@ const applyFiltersAndSort = () => {
     renderPagination();
 };
 
-// 현재 페이지의 비디오 목록을 표시하는 함수
+// 현재 페이지의 비디오 목록을 표시하는 함수 (테이블 뷰로 업데이트됨)
 const displayVideosPage = () => {
-    videoGrid.innerHTML = '';
+    if (!videoTableBody) return;
+
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const pageVideos = filteredVideos.slice(startIndex, endIndex);
 
     if (pageVideos.length === 0) {
-        videoGrid.innerHTML = '<p class="info-message">조건에 맞는 영상이 없습니다.</p>';
+        videoTableBody.innerHTML = '<tr><td colspan="7" class="info-message">조건에 맞는 영상이 없습니다.</td></tr>';
         return;
     }
 
-    pageVideos.forEach(video => {
-        const card = document.createElement('div');
-        card.className = 'video-card';
-
-        const kr_categories = [video.kr_category_large, video.kr_category_medium, video.kr_category_small].filter(Boolean).join(' > ');
-        
+    // 테이블 행 생성
+    const rowsHtml = pageVideos.map(video => {
         const thumbnailHTML = video.thumbnail
-            ? `<img src="${video.thumbnail}" alt="${video.title}" loading="lazy" onerror="this.outerHTML = \`<div class='no-thumbnail'>이미지 없음</div>\`">`
-            : `<div class="no-thumbnail">이미지 없음</div>`;
+            ? `<img src="${video.thumbnail}" alt="${video.title}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML = \`<div class='no-thumbnail-placeholder'>이미지 없음</div>\`">`
+            : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
 
-        card.innerHTML = `
-            <div class="card-thumbnail">
-                ${thumbnailHTML}
-                <a href="${video.youtube_url}" target="_blank" class="youtube-link">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>
-                    <span>바로가기</span>
-                </a>
-            </div>
-            <div class="card-content">
-                <div class="card-header">
-                    <span class="channel-name">${video.channel || '채널 정보 없음'}</span>
-                    <span class="group-tag">${video.group_name || ''}</span>
-                </div>
-                <h3 class="card-title">${video.title}</h3>
-                <div class="card-meta">
-                    <div class="meta-item">
-                        <span class="meta-label">조회수</span>
-                        <span class="meta-value">${(video.views_numeric || 0).toLocaleString()}회</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">구독자</span>
-                        <span class="meta-value">${(video.subscribers_numeric || 0).toLocaleString()}명</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">게시일</span>
-                        <span class="meta-value">${video.date || '없음'}</span>
-                    </div>
-                </div>
-                <p class="card-category">${kr_categories || '카테고리 없음'}</p>
-                <div class="card-extra-info">
-                    <div class="extra-item"><strong>소재:</strong> ${video.material || '없음'}</div>
-                    <div class="extra-item"><strong>템플릿 유형:</strong> ${video.template_type || '없음'}</div>
-                    <div class="extra-item"><strong>원본:</strong> ${video.source_type || '없음'}</div>
-                    <div class="extra-item"><strong>후킹:</strong> ${video.hooking || '없음'}</div>
-                    <div class="extra-item"><strong>기승전결:</strong> ${video.narrative_structure || '없음'}</div>
-                </div>
-                <button class="more-info-btn">더보기</button>
-            </div>
+        // 카테고리 표시 (대 카테고리 기준)
+        const category = video.kr_category_large || '없음';
+
+        // '자세히 보기' 링크 추가 (target="_blank"로 새 창 열기)
+        return `
+            <tr>
+                <td>${thumbnailHTML}</td>
+                <td class="table-title">${video.title || '제목 없음'}</td>
+                <td>${video.channel || '채널 없음'}</td>
+                <td>${(video.views_numeric || 0).toLocaleString()}회</td>
+                <td>${video.date || '없음'}</td>
+                <td>${category}</td>
+                <td>
+                    <a href="details.html?id=${video.id}" class="btn btn-details" target="_blank">자세히 보기</a>
+                </td>
+            </tr>
         `;
-        videoGrid.appendChild(card);
-    });
+    }).join('');
+
+    videoTableBody.innerHTML = rowsHtml;
 };
 
 // 페이지네이션 UI 렌더링 함수
@@ -160,16 +145,25 @@ const renderPagination = () => {
 
     if (totalPages <= 1) return;
 
+    const changePage = (newPage) => {
+        currentPage = newPage;
+        displayVideosPage();
+        renderPagination();
+        // 페이지 변경 시 테이블 상단으로 스크롤
+        if (videoTableContainer) {
+            videoTableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            window.scrollTo(0, 0);
+        }
+    };
+
     const prevButton = document.createElement('button');
     prevButton.textContent = '이전';
     prevButton.className = 'pagination-btn';
     prevButton.disabled = currentPage === 1;
     prevButton.addEventListener('click', () => {
         if (currentPage > 1) {
-            currentPage--;
-            displayVideosPage();
-            renderPagination();
-            window.scrollTo(0, 0);
+            changePage(currentPage - 1);
         }
     });
 
@@ -179,10 +173,7 @@ const renderPagination = () => {
     nextButton.disabled = currentPage === totalPages;
     nextButton.addEventListener('click', () => {
         if (currentPage < totalPages) {
-            currentPage++;
-            displayVideosPage();
-            renderPagination();
-            window.scrollTo(0, 0);
+            changePage(currentPage + 1);
         }
     });
     
@@ -196,23 +187,13 @@ const renderPagination = () => {
 };
 
 
-// '더보기' 버튼에 대한 이벤트 위임
-videoGrid.addEventListener('click', (e) => {
-    if (e.target.classList.contains('more-info-btn')) {
-        const button = e.target;
-        const card = button.closest('.video-card');
-        if (card) {
-            card.classList.toggle('expanded');
-            button.textContent = card.classList.contains('expanded') ? '숨기기' : '더보기';
-        }
-    }
-});
-
-// 필터 이벤트 리스너 등록
+// 필터 이벤트 리스너 등록 (기존과 동일)
 [searchInput, formTypeFilter, startDateFilter, endDateFilter, sortFilter].forEach(el => {
-    el.addEventListener('input', applyFiltersAndSort);
-    if (el.tagName === 'SELECT') {
-        el.addEventListener('change', applyFiltersAndSort);
+    if (el) {
+        el.addEventListener('input', applyFiltersAndSort);
+        if (el.tagName === 'SELECT' || el.type === 'date') {
+            el.addEventListener('change', applyFiltersAndSort);
+        }
     }
 });
 
