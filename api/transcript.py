@@ -155,40 +155,9 @@ def transcript_root():
         if not url:
             return jsonify({ 'error': 'url query required' }), 400
 
-        # 1) youtube-transcript-api 우선 시도
-        vid = None
-        try:
-            if 'watch?v=' in url:
-                vid = url.split('watch?v=')[1].split('&')[0]
-            elif 'youtu.be/' in url:
-                vid = url.split('youtu.be/')[1].split('?')[0]
-            elif '/shorts/' in url:
-                vid = url.split('/shorts/')[1].split('?')[0]
-        except Exception:
-            vid = None
-
-        if YouTubeTranscriptApi and vid:
-            try:
-                ytt = YouTubeTranscriptApi()
-                fetched = None
-                for lang in preferred_langs:
-                    try:
-                        fetched = ytt.fetch(vid, languages=[lang])
-                        if fetched:
-                            break
-                    except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable):
-                        continue
-                if not fetched:
-                    fetched = ytt.fetch(vid)
-                text = '\n'.join([snip.text for snip in fetched if getattr(snip, 'text', '')])
-                if text.strip():
-                    return jsonify({ 'text': text, 'lang': getattr(fetched, 'language_code', None), 'ext': 'json' }), 200
-            except Exception:
-                pass
-
-        # 2) yt-dlp 폴백
+        # STT 경로: 바로 yt-dlp로 오디오 URL 추출 후 Deepgram STT
         if YoutubeDL is None:
-            return jsonify({ 'error': 'caption not found' }), 404
+            return jsonify({ 'error': 'yt_dlp_unavailable' }), 500
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -198,53 +167,13 @@ def transcript_root():
         }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-
-        subtitles = info.get('subtitles') or {}
-        auto = info.get('automatic_captions') or {}
-        collected = []
-        for source in (subtitles, auto):
-            for lang, items in source.items():
-                for it in items or []:
-                    collected.append({ 'lang': str(lang).lower(), 'ext': it.get('ext'), 'url': it.get('url') })
-
-        preferred_exts = ['vtt', 'srt']
-        cand = None
-        for p in preferred_langs:
-            cand = next((t for t in collected if (t['ext'] in preferred_exts) and (t['lang'] == p or t['lang'].startswith(p + '-'))), None)
-            if cand:
-                break
-        if cand is None:
-            cand = next((t for t in collected if t['ext'] in preferred_exts), None)
-        if cand is None and collected:
-            cand = collected[0]
-        if not cand or not cand.get('url'):
-            # 3) STT 폴백 (Deepgram) — 자막이 전혀 없을 때
-            audio_url = _pick_audio_url(info)
-            stt = _stt_with_deepgram(audio_url, preferred_langs)
-            if stt.get('text'):
-                return jsonify(stt), 200
-            return jsonify({ 'error': 'caption not found' }), 404
-
-        r = requests.get(cand['url'], headers=DEFAULT_HEADERS, timeout=15)
-        if r.status_code != 200:
-            # 3) STT 폴백 (Deepgram) — 자막 파일 접근 실패
-            audio_url = _pick_audio_url(info)
-            stt = _stt_with_deepgram(audio_url, preferred_langs)
-            if stt.get('text'):
-                return jsonify(stt), 200
-            return jsonify({ 'error': 'caption fetch failed', 'status': r.status_code }), 502
-        # Google 차단 페이지 대응
-        ctype = (r.headers.get('content-type') or '').lower()
-        if 'text/html' in ctype and ('sorry' in r.text.lower() or '<html' in r.text.lower()):
-            # 3) STT 폴백 (Deepgram) — 차단 시 음성 직접 STT 시도
-            audio_url = _pick_audio_url(info)
-            stt = _stt_with_deepgram(audio_url, preferred_langs)
-            if stt.get('text'):
-                return jsonify(stt), 200
-            return jsonify({ 'error': 'blocked_by_provider' }), 429
-
-        text = _to_plain_text(r.text, cand.get('ext'))
-        return jsonify({ 'text': text, 'lang': cand.get('lang'), 'ext': cand.get('ext') }), 200
+        audio_url = _pick_audio_url(info)
+        if not audio_url:
+            return jsonify({ 'error': 'audio_not_found' }), 404
+        stt = _stt_with_deepgram(audio_url, preferred_langs)
+        if stt.get('text'):
+            return jsonify(stt), 200
+        return jsonify({ 'error': 'stt_failed' }), 502
 
     except Exception as e:
         return jsonify({ 'error': str(e) }), 500
