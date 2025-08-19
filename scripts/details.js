@@ -8,6 +8,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const detailsContent = document.getElementById('details-content');
+const dopamineGraphContainer = document.getElementById('dopamine-graph');
 
 // URL에서 비디오 ID 가져오기
 const getVideoIdFromUrl = () => {
@@ -100,10 +101,43 @@ const renderDetails = (video) => {
                     ${renderDetailItem('한국 카테고리', kr_categories)}
                     ${renderDetailItem('영문 카테고리', en_categories)}
                     ${renderDetailItem('중국 카테고리', cn_categories)}
+                    ${renderDetailItem('분석 원문', video.analysis_full ? '<pre style="white-space:pre-wrap;">' + escapeHtml(video.analysis_full) + '</pre>' : '')}
                 </div>
             </div>
         </div>
     `;
+
+    // 도파민 그래프 표시
+    if (Array.isArray(video.dopamine_graph) && video.dopamine_graph.length && dopamineGraphContainer) {
+        dopamineGraphContainer.innerHTML = '';
+        const header = document.createElement('div');
+        header.innerHTML = `<div style="font-weight:600;">문장</div><div style="font-weight:600;">레벨</div><div style="font-weight:600;">시각화</div>`;
+        header.style.display = 'grid';
+        header.style.gridTemplateColumns = '1fr auto auto';
+        header.style.marginBottom = '8px';
+        dopamineGraphContainer.appendChild(header);
+        video.dopamine_graph.forEach(item => {
+            const sentence = document.createElement('div');
+            sentence.textContent = item.sentence || item.text || '';
+            const level = Number(item.level ?? item.score ?? 0);
+            const levelDiv = document.createElement('div');
+            levelDiv.textContent = String(level);
+            const bar = document.createElement('div');
+            bar.style.height = '10px';
+            bar.style.width = Math.max(5, Math.min(100, Math.round(level * 10))) + 'px';
+            bar.style.background = '#10b981';
+            bar.style.borderRadius = '4px';
+            const row = document.createElement('div');
+            row.style.display = 'grid';
+            row.style.gridTemplateColumns = '1fr auto auto';
+            row.style.alignItems = 'center';
+            row.style.gap = '12px';
+            row.appendChild(sentence);
+            row.appendChild(levelDiv);
+            row.appendChild(bar);
+            dopamineGraphContainer.appendChild(row);
+        });
+    }
 };
 
 // 상세 항목 렌더링 헬퍼
@@ -115,6 +149,13 @@ const renderDetailItem = (label, value) => {
         </div>
     `;
 };
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
 
 // 페이지 로드 시 실행
