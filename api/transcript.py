@@ -145,7 +145,9 @@ def _to_plain_text(body: str, ext: str) -> str:
     return body
 
 
-@app.get('/')
+@app.route('/', methods=['GET'])
+@app.route('/transcript', methods=['GET'])
+@app.route('/api/transcript', methods=['GET'])
 def transcript_root():
     try:
         if YouTubeTranscriptApi is None:
