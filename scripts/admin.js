@@ -388,13 +388,27 @@ function buildMaterialPrompt() {
 
 function splitTranscriptIntoSentences(text) {
     if (!text) return [];
-    // 줄바꿈 정리
-    const normalized = String(text).replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
-    // '>>' 같은 마커를 공백으로 치환하여 파싱 안정화
-    const cleaned = normalized.replace(/>{2,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    // 문장 단위 분할: 마침표/물음표/느낌표 + 줄바꿈 기준만 사용
-    return cleaned
-        .split(/(?<=[\.!\?])\s+|\n+/)
+    // 기본 정리
+    let normalized = String(text).replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
+    // '>>' 제거 및 다중 공백 정리
+    normalized = normalized.replace(/>{2,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    // 줄 단위로 나눈 뒤 숫자만 있는 라인은 제거
+    const lines = normalized.split('\n').map(l => l.trim()).filter(l => l && !/^\d+(\.\d+)?$/.test(l));
+    // 문장 내부 개행은 공백으로 합치고, 문장 끝(.,!,?, …) 뒤 개행은 그대로 경계로 유지되도록 마킹
+    const joined = lines
+        .map(l => l)
+        .join('\n')
+        // 문장 끝 표시: 마침표/물음표/느낌표/줄임표 뒤 개행을 특수 토큰으로 바꿈
+        .replace(/([\.\?\!…])\s*\n+/g, '$1__SENT_BR__')
+        // 그 외 개행은 공백으로 접합
+        .replace(/\n+/g, ' ')
+        // 특수 토큰은 실제 경계로 환원
+        .replace(/__SENT_BR__/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    // 문장 분할: 마침표/물음표/느낌표/줄임표 기준
+    return joined
+        .split(/(?<=[\.\?\!…])\s+/)
         .map(s => s.trim())
         .filter(Boolean);
 }
