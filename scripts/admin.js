@@ -479,35 +479,43 @@ async function analyzeOneVideo(video) {
     const sentences = splitTranscriptIntoSentences(transcript);
     appendAnalysisLog(`(${video.id}) 문장 분해 ${sentences.length}개`);
 
-    // 5-1 카테고리 산출
-    appendAnalysisLog(`(${video.id}) 카테고리 분석 시작`);
-    const categoriesText = await callGeminiAPI(buildCategoryPrompt(), transcript);
+    // 1) 소재 분석 (우선 수행)
+    appendAnalysisLog(`(${video.id}) 소재 분석 시작`);
+    const materialOnly = await callGeminiAPI(buildMaterialPrompt(), transcript);
 
-    // 5-2 소재/후킹/기승전결 등 템플릿 분석
+    // 2) 템플릿 분석 (후킹요소/기승전결)
     appendAnalysisLog(`(${video.id}) 템플릿 분석 시작`);
     const analysisText = await callGeminiAPI(buildAnalysisPrompt(), transcript);
 
-    // 3 도파민 그래프 분석(JSON)
+    // 3) 카테고리 분석 (KR/EN/CN)
+    appendAnalysisLog(`(${video.id}) 카테고리 분석 시작`);
+    const categoriesText = await callGeminiAPI(buildCategoryPrompt(), transcript);
+
+    // 4) 도파민 그래프 분석(JSON)
     appendAnalysisLog(`(${video.id}) 도파민 분석 시작`);
     const dopamineGraph = await analyzeDopamineByBatches(sentences, appendAnalysisLog);
     if (!Array.isArray(dopamineGraph) || dopamineGraph.length === 0) {
         appendAnalysisLog(`(${video.id}) 도파민 결과가 비어 있습니다 (파싱 실패 가능)`);
     }
 
-    // 간단 파싱 규칙(유연 처리): 카테고리 키워드 추출
+    // 결과 매핑
     const updated = { ...video };
-    // 관리자 수동 검수 전용 필드에 원문 저장
     updated.analysis_full = analysisText;
     updated.dopamine_graph = dopamineGraph;
     updated.analysis_transcript_len = transcript.length;
     updated.transcript_text = transcript;
 
-    // 사용자가 기대한 필드 매핑을 위해 키워드 탐색(간단)
     function extractLine(regex, text) {
         const m = text.match(regex); return m ? (m[1] || m[0]).trim() : '';
     }
 
-    // 카테고리 반영(없으면 유지)
+    // 후킹요소/기승전결 (템플릿 분석 기반)
+    const hookFromAnalysis = extractHookFromAnalysis(analysisText);
+    updated.hooking = hookFromAnalysis || extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
+    const conciseNarrative = extractConciseNarrative(analysisText);
+    updated.narrative_structure = conciseNarrative || '없음';
+
+    // 카테고리 (KR/EN/CN)
     updated.kr_category_large = extractLine(/한국\s*대\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_large;
     updated.kr_category_medium = extractLine(/한국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_medium;
     updated.kr_category_small = extractLine(/한국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_small;
@@ -518,17 +526,7 @@ async function analyzeOneVideo(video) {
     updated.cn_category_medium = extractLine(/중국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_medium;
     updated.cn_category_small = extractLine(/중국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_small;
 
-    // 후킹요소: 6번 Hook 우선 반영
-    const hookFromAnalysis = extractHookFromAnalysis(analysisText);
-    updated.hooking = hookFromAnalysis || extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
-
-    // 기승전결: 2번 표에서 ✅ 유사 프롬프트를 간결 요약, 없으면 '없음'
-    const conciseNarrative = extractConciseNarrative(analysisText);
-    updated.narrative_structure = conciseNarrative || '없음';
-
     // 소재: Gemini 강제 출력 + 비었을 때 보조 규칙
-    appendAnalysisLog(`(${video.id}) 소재 분석 시작`);
-    const materialOnly = await callGeminiAPI(buildMaterialPrompt(), transcript);
     let materialCandidate = extractLine(/소재\s*[:：]\s*(.+)/i, materialOnly) || (materialOnly || '').trim();
     if (!materialCandidate) {
         materialCandidate = inferMaterialFromContext(updated, transcript, analysisText, sentences);
@@ -709,20 +707,14 @@ async function processDataAndUpload(data) {
             hash: row.Hash || '',
             youtube_url: row['YouTube URL'] || '',
             group_name: row.group_name || '',
-            kr_category_large: row['한국 대 카테고리'] || '',
-            kr_category_medium: row['한국 중 카테고리'] || '',
-            kr_category_small: row['한국 소 카테고리'] || '',
-            en_category_main: row['EN Main Category'] || '',
-            en_category_sub: row['EN Sub Category'] || '',
-            en_micro_topic: row['EN Micro Topic'] || '',
-            cn_category_large: row['중국 대 카테고리'] || '',
-            cn_category_medium: row['중국 중 카테고리'] || '',
-            cn_category_small: row['중국 소 카테고리'] || '',
-            template_type: row['템플릿 유형'] || '',
-            narrative_structure: row['기승전결'] || '',
-            material: row['소재'] || '',
-            source_type: row['원본'] || '',
-            hooking: row['후킹'] || ''
+            // 템플릿 유형만 엑셀에서 유지
+            template_type: row['템플릿 유형'] || ''
+            // 아래 필드들은 엑셀에서 받지 않고, Gemini 분석으로 채웁니다
+            // material, hooking, narrative_structure,
+            // kr_category_large/medium/small,
+            // en_category_main/sub, en_micro_topic,
+            // cn_category_large/medium/small,
+            // source_type
         };
         const docId = row.Hash || row.Title.replace(/[^a-zA-Z0-9]/g, '');
         uploadBatch.set(doc(db, 'videos', docId), videoData);
