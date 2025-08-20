@@ -390,8 +390,10 @@ function splitTranscriptIntoSentences(text) {
     if (!text) return [];
     // 줄바꿈 정리
     const normalized = String(text).replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
-    // 문장 단위 분할: 마침표/물음표/느낌표 + 줄바꿈 기준만 사용 (쉼표 기준 분할 제거)
-    return normalized
+    // '>>' 같은 마커를 공백으로 치환하여 파싱 안정화
+    const cleaned = normalized.replace(/>{2,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    // 문장 단위 분할: 마침표/물음표/느낌표 + 줄바꿈 기준만 사용
+    return cleaned
         .split(/(?<=[\.!\?])\s+|\n+/)
         .map(s => s.trim())
         .filter(Boolean);
