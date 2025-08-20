@@ -204,6 +204,12 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 
 /* 도파민 그래프 영역 */
 #dopamine-graph-section h2 { margin-bottom: 0.75rem; }
+.dopamine-legend { display:flex; gap:8px; align-items:center; margin: 0.5rem 0 1rem; font-size: 12px; color: var(--text-secondary); }
+.dopamine-legend span { display:inline-flex; align-items:center; gap:6px; }
+.dopamine-dot { width: 10px; height: 10px; border-radius: 50%; display:inline-block; }
+.dot-low { background:#94a3b8; }
+.dot-mid { background:#f59e0b; }
+.dot-high { background:#ef4444; }
 
 .details-grid {
     display: grid;
