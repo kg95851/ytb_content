@@ -150,6 +150,19 @@ const renderDetails = (video) => {
             row.appendChild(bar);
             dopamineGraphContainer.appendChild(row);
         });
+
+        // 차트 컨테이너 및 캔버스 추가
+        const chartWrap = document.createElement('div');
+        chartWrap.id = 'dopamine-chart-container';
+        chartWrap.style.marginTop = '16px';
+        const canvas = document.createElement('canvas');
+        canvas.id = 'dopamine-chart';
+        canvas.height = 220;
+        chartWrap.appendChild(canvas);
+        dopamineGraphContainer.appendChild(chartWrap);
+        drawDopamineChart(canvas, video.dopamine_graph);
+        // 리사이즈 대응(간단)
+        window.addEventListener('resize', () => drawDopamineChart(canvas, video.dopamine_graph));
     }
 };
 
@@ -171,6 +184,83 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;');
 }
 
+function drawDopamineChart(canvas, data) {
+    if (!canvas || !canvas.getContext || !Array.isArray(data) || data.length === 0) return;
+    const parent = canvas.parentElement;
+    const width = Math.max(320, parent?.clientWidth || 640);
+    canvas.width = width;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 차트 영역 설정
+    const paddingLeft = 40;
+    const paddingRight = 16;
+    const paddingTop = 16;
+    const paddingBottom = 28;
+    const chartW = canvas.width - paddingLeft - paddingRight;
+    const chartH = canvas.height - paddingTop - paddingBottom;
+
+    // y축: 0~10 스케일
+    const yMin = 0;
+    const yMax = 10;
+    const n = data.length;
+
+    function xPos(i) {
+        if (n === 1) return paddingLeft + chartW / 2;
+        return paddingLeft + (i / (n - 1)) * chartW;
+    }
+    function yPos(value) {
+        const v = Math.max(yMin, Math.min(yMax, Number(value) || 0));
+        const ratio = (v - yMin) / (yMax - yMin);
+        return paddingTop + (1 - ratio) * chartH;
+    }
+
+    // 격자 및 축
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // 가로 그리드: 0, 3, 6, 9, 10
+    [0, 3, 6, 9, 10].forEach(val => {
+        const y = yPos(val);
+        ctx.moveTo(paddingLeft, y);
+        ctx.lineTo(canvas.width - paddingRight, y);
+    });
+    ctx.stroke();
+
+    // y축 눈금
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial';
+    [0, 3, 6, 9, 10].forEach(val => {
+        const y = yPos(val);
+        ctx.fillText(String(val), 8, y + 4);
+    });
+
+    // 선 그래프 그리기
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((item, i) => {
+        const x = xPos(i);
+        const y = yPos(item.level ?? item.score ?? 0);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // 포인트 및 색상(구간 색)
+    data.forEach((item, i) => {
+        const level = Number(item.level ?? item.score ?? 0);
+        const x = xPos(i);
+        const y = yPos(level);
+        let color = '#94a3b8';
+        if (level >= 4 && level <= 6) color = '#f59e0b';
+        if (level >= 7 && level <= 9) color = '#ef4444';
+        if (level >= 10) color = '#b91c1c';
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
 
 // 페이지 로드 시 실행
 fetchAndDisplayDetails();
