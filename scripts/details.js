@@ -222,17 +222,53 @@ function splitAnalysisSections(text) {
 function renderAnalysisCards(analysisText) {
     const secs = splitAnalysisSections(analysisText);
     if (!secs.length) return '';
-    return secs.map(sec => {
-        const title = `${sec.idx}. ${sec.title || ''}`.trim();
-        const body = sec.lines.join('\n').trim();
-        return `
+    return secs
+        .filter(sec => sec.idx !== 0 && sec.idx !== 2) // 0, 2 섹션 숨김
+        .map(sec => {
+            const title = `${sec.idx}. ${sec.title || ''}`.trim();
+            const body = prettyFormatMarkdownTables(sec.lines.join('\n').trim());
+            return `
         <div class="analysis-card">
             <div class="analysis-card-header">${escapeHtml(title)}</div>
             <div class="analysis-card-body">
                 <pre class="analysis-pre">${escapeHtml(body)}</pre>
             </div>
         </div>`;
-    }).join('');
+        }).join('');
+}
+
+function prettyFormatMarkdownTables(text) {
+    const lines = String(text).split('\n');
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        if (/^\s*\|/.test(line)) {
+            // collect table block
+            const tbl = [];
+            while (i < lines.length && /^\s*\|/.test(lines[i])) {
+                tbl.push(lines[i]);
+                i++;
+            }
+            // parse rows
+            const rows = tbl
+                .map(l => l.replace(/^\s*\|/, '').replace(/\|\s*$/, ''))
+                .map(l => l.split('|').map(c => c.trim()));
+            // drop header separator rows (---)
+            const cleaned = rows.filter(r => !r.every(c => /^:?-{3,}:?$/.test(c)));
+            // if header exists, drop first row if next was separator
+            if (rows.length >= 2 && rows[1].every(c => /^:?-{3,}:?$/.test(c))) cleaned.shift();
+            // format
+            cleaned.forEach(r => {
+                if (r.length === 2) out.push(`- ${r[0]}: ${r[1]}`);
+                else out.push(`- ${r.filter(Boolean).join(' · ')}`);
+            });
+        } else {
+            out.push(line);
+            i++;
+        }
+    }
+    return out.join('\n').trim();
 }
 
 function drawDopamineChart(canvas, data) {
