@@ -372,26 +372,20 @@ function buildDopamineBatchPrompt(sentences) {
     return header + '\n\n문장 배열:\n' + JSON.stringify(sentences);
 }
 
+function buildMaterialPrompt() {
+    // 반드시 한 줄로 소재를 출력하도록 강제
+    return '다음 대본의 핵심 소재를 한 문장으로 요약하세요. 반드시 한 줄로만, "소재: "로 시작하여 출력하세요. 다른 설명이나 불필요한 문자는 금지합니다.';
+}
+
 function splitTranscriptIntoSentences(text) {
     if (!text) return [];
     // 줄바꿈 정리
     const normalized = String(text).replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
-    // 문장 단위 분할: 마침표/물음표/느낌표/한국어 종결 패턴 및 줄바꿈 기준
-    const raw = normalized
-        .split(/(?<=[\.\?\!])\s+|\n+/)
+    // 문장 단위 분할: 마침표/물음표/느낌표 + 줄바꿈 기준만 사용 (쉼표 기준 분할 제거)
+    return normalized
+        .split(/(?<=[\.!\?])\s+|\n+/)
         .map(s => s.trim())
         .filter(Boolean);
-    // 너무 긴 문장 추가 분해(쉼표 기준)
-    const sentences = [];
-    for (const s of raw) {
-        if (s.length > 400) {
-            const parts = s.split(/,\s+/);
-            for (const p of parts) if (p) sentences.push(p);
-        } else {
-            sentences.push(s);
-        }
-    }
-    return sentences;
 }
 
 async function analyzeDopamineByBatches(sentences, onLog) {
@@ -501,7 +495,7 @@ async function analyzeOneVideo(video) {
         const m = text.match(regex); return m ? (m[1] || m[0]).trim() : '';
     }
 
-    // 예: "한국 대 카테고리: XXX" 같은 형식을 기대. 없다면 빈값 유지
+    // 카테고리 반영(없으면 유지)
     updated.kr_category_large = extractLine(/한국\s*대\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_large;
     updated.kr_category_medium = extractLine(/한국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_medium;
     updated.kr_category_small = extractLine(/한국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_small;
@@ -512,12 +506,74 @@ async function analyzeOneVideo(video) {
     updated.cn_category_medium = extractLine(/중국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_medium;
     updated.cn_category_small = extractLine(/중국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_small;
 
-    // 소재, 후킹, 기승전결은 analysisText에서 키워드로 추출(템플릿 유지 시 수월)
-    updated.material = extractLine(/소재\s*[:：]\s*(.+)/i, analysisText) || updated.material;
-    updated.hooking = extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
-    updated.narrative_structure = extractLine(/기승전결\s*구조\s*[:：]\s*(.+)/i, analysisText) || updated.narrative_structure;
+    // 후킹요소: 6번 Hook 우선 반영
+    const hookFromAnalysis = extractHookFromAnalysis(analysisText);
+    updated.hooking = hookFromAnalysis || extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
+
+    // 기승전결: 2번 표에서 ✅ 유사 프롬프트를 간결 요약, 없으면 '없음'
+    const conciseNarrative = extractConciseNarrative(analysisText);
+    updated.narrative_structure = conciseNarrative || '없음';
+
+    // 소재: Gemini 강제 출력 + 비었을 때 보조 규칙
+    appendAnalysisLog(`(${video.id}) 소재 분석 시작`);
+    const materialOnly = await callGeminiAPI(buildMaterialPrompt(), transcript);
+    let materialCandidate = extractLine(/소재\s*[:：]\s*(.+)/i, materialOnly) || (materialOnly || '').trim();
+    if (!materialCandidate) {
+        materialCandidate = inferMaterialFromContext(updated, transcript, analysisText, sentences);
+    }
+    updated.material = materialCandidate || updated.material || '';
 
     return { updated, raw: { categoriesText, analysisText, dopamineGraph, transcript } };
+}
+
+function extractHookFromAnalysis(analysisText) {
+    try {
+        const sectionIdx = analysisText.indexOf('6. 궁금증 유발 및 해소 과정 분석');
+        if (sectionIdx === -1) return '';
+        const slice = analysisText.slice(sectionIdx);
+        const lines = slice.split('\n');
+        for (const line of lines) {
+            const m = line.match(/^\|\s*[^|]*궁금증\s*유발[^|]*\|\s*([^|]+)\|/);
+            if (m) return m[1].trim();
+        }
+    } catch {}
+    return '';
+}
+
+function extractConciseNarrative(analysisText) {
+    try {
+        const sectionIdx = analysisText.indexOf('2. 기존 프롬프트와의 미스매치 비교표');
+        if (sectionIdx === -1) return '';
+        const slice = analysisText.slice(sectionIdx);
+        const lines = slice.split('\n').filter(l => l.trim().startsWith('|'));
+        for (const line of lines) {
+            const cells = line.split('|').map(s => s.trim());
+            if (cells.length < 9) continue;
+            const gi = cells[2];
+            const seung = cells[3];
+            const jeon = cells[4];
+            const gyeol = cells[5];
+            const feature = cells[6];
+            const matchCell = cells[7];
+            if (/✅/.test(matchCell)) return `기: ${gi} | 승: ${seung} | 전: ${jeon} | 결: ${gyeol} | 특징: ${feature}`;
+        }
+        return '';
+    } catch { return ''; }
+}
+
+function inferMaterialFromContext(updated, transcript, analysisText, sentences) {
+    // 카테고리 기반 우선
+    const candidates = [
+        updated.kr_category_small,
+        updated.kr_category_medium,
+        updated.kr_category_large,
+        updated.en_micro_topic,
+        updated.en_category_main
+    ].filter(Boolean);
+    if (candidates.length) return String(candidates[0]).slice(0, 60);
+    // 대본 첫 문장 기반 보조
+    const first = (Array.isArray(sentences) && sentences[0]) ? sentences[0] : (transcript || '').split(/\n+/)[0];
+    return String(first || '').slice(0, 60);
 }
 
 async function runAnalysisForIds(ids) {
