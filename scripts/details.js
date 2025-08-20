@@ -110,6 +110,14 @@ const renderDetails = (video) => {
     // 도파민 그래프 표시
     if (Array.isArray(video.dopamine_graph) && video.dopamine_graph.length && dopamineGraphContainer) {
         dopamineGraphContainer.innerHTML = '';
+        const legend = document.createElement('div');
+        legend.className = 'dopamine-legend';
+        legend.innerHTML = `
+            <span><i class="dopamine-dot dot-low"></i> 1-3 낮음</span>
+            <span><i class="dopamine-dot dot-mid"></i> 4-6 중간</span>
+            <span><i class="dopamine-dot dot-high"></i> 7-9 높음</span>
+        `;
+        dopamineGraphContainer.appendChild(legend);
         const header = document.createElement('div');
         header.innerHTML = `<div style="font-weight:600;">문장</div><div style="font-weight:600;">레벨</div><div style="font-weight:600;">시각화</div>`;
         header.style.display = 'grid';
@@ -125,7 +133,12 @@ const renderDetails = (video) => {
             const bar = document.createElement('div');
             bar.style.height = '10px';
             bar.style.width = Math.max(5, Math.min(100, Math.round(level * 10))) + 'px';
-            bar.style.background = '#10b981';
+            // 구간 색상: 1-3 낮음(회색), 4-6 중간(주황), 7-9 높음(빨강), 10은 더 진한 빨강
+            let color = '#94a3b8';
+            if (level >= 4 && level <= 6) color = '#f59e0b';
+            if (level >= 7 && level <= 9) color = '#ef4444';
+            if (level >= 10) color = '#b91c1c';
+            bar.style.background = color;
             bar.style.borderRadius = '4px';
             const row = document.createElement('div');
             row.style.display = 'grid';
