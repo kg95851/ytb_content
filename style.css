@@ -236,6 +236,37 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
     padding: 12px;
 }
 
+/* 분석 카드 레이아웃 */
+.analysis-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: .5rem;
+}
+.analysis-card {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.analysis-card-header {
+    background: #f9fafb;
+    padding: .75rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+.analysis-card-body {
+    padding: .75rem 1rem;
+}
+.analysis-pre {
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+}
+
 .detail-label {
     font-weight: 600;
     color: var(--text-secondary);
