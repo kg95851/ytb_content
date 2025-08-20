@@ -352,7 +352,16 @@ async function fetchTranscriptByUrl(youtubeUrl) {
 
 function buildCategoryPrompt() {
     return (
-`한국의 대,중,소 카테고리, EN카테고리 MAIN CATEGORY, SUB CATEGORY, MICRO TOPIC, 중국 버전 대중소 카테고리도 같이 작성해줘`
+`다음 대본을 기반으로 카테고리를 아래 형식으로만 한 줄씩 정확히 출력하세요. 다른 텍스트/머리말/설명 금지.
+한국 대 카테고리: 
+한국 중 카테고리: 
+한국 소 카테고리: 
+EN Main Category: 
+EN Sub Category: 
+EN Micro Topic: 
+중국 대 카테고리: 
+중국 중 카테고리: 
+중국 소 카테고리: `
     );
 }
 
@@ -481,6 +490,9 @@ async function analyzeOneVideo(video) {
     // 3 도파민 그래프 분석(JSON)
     appendAnalysisLog(`(${video.id}) 도파민 분석 시작`);
     const dopamineGraph = await analyzeDopamineByBatches(sentences, appendAnalysisLog);
+    if (!Array.isArray(dopamineGraph) || dopamineGraph.length === 0) {
+        appendAnalysisLog(`(${video.id}) 도파민 결과가 비어 있습니다 (파싱 실패 가능)`);
+    }
 
     // 간단 파싱 규칙(유연 처리): 카테고리 키워드 추출
     const updated = { ...video };
@@ -528,11 +540,9 @@ async function analyzeOneVideo(video) {
 
 function extractHookFromAnalysis(analysisText) {
     try {
-        const sectionIdx = analysisText.indexOf('6. 궁금증 유발 및 해소 과정 분석');
-        if (sectionIdx === -1) return '';
-        const slice = analysisText.slice(sectionIdx);
-        const lines = slice.split('\n');
+        const lines = String(analysisText).split('\n');
         for (const line of lines) {
+            // 표 행 전체에서 Hook 행을 탐색
             const m = line.match(/^\|\s*[^|]*궁금증\s*유발[^|]*\|\s*([^|]+)\|/);
             if (m) return m[1].trim();
         }
@@ -542,10 +552,7 @@ function extractHookFromAnalysis(analysisText) {
 
 function extractConciseNarrative(analysisText) {
     try {
-        const sectionIdx = analysisText.indexOf('2. 기존 프롬프트와의 미스매치 비교표');
-        if (sectionIdx === -1) return '';
-        const slice = analysisText.slice(sectionIdx);
-        const lines = slice.split('\n').filter(l => l.trim().startsWith('|'));
+        const lines = String(analysisText).split('\n').filter(l => l.trim().startsWith('|'));
         for (const line of lines) {
             const cells = line.split('|').map(s => s.trim());
             if (cells.length < 9) continue;
