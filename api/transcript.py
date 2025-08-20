@@ -1,5 +1,6 @@
 import json
 import re
+import os
 from typing import Dict, Any, List
 from flask import Flask, request, jsonify
 
@@ -21,8 +22,10 @@ try:
         NoTranscriptFound,
         VideoUnavailable,
     )
+    from youtube_transcript_api.proxies import WebshareProxyConfig
 except Exception:
     YouTubeTranscriptApi = None
+    WebshareProxyConfig = None
     class _TranscriptApiImportFallback(Exception):
         pass
     TranscriptsDisabled = NoTranscriptFound = VideoUnavailable = _TranscriptApiImportFallback
@@ -145,9 +148,8 @@ def _to_plain_text(body: str, ext: str) -> str:
 @app.get('/')
 def transcript_root():
     try:
-        # requests는 반드시 필요, yt-dlp는 폴백이므로 없어도 됨
-        if requests is None:
-            return jsonify({ 'error': 'dependencies not available' }), 500
+        if YouTubeTranscriptApi is None:
+            return jsonify({ 'error': 'youtube_transcript_api not available' }), 500
 
         url = request.args.get('url')
         lang_pref_raw = (request.args.get('lang') or '').strip().lower()
@@ -155,31 +157,88 @@ def transcript_root():
         if not url:
             return jsonify({ 'error': 'url query required' }), 400
 
-        # STT 경로: 바로 yt-dlp로 오디오 URL 추출 후 Deepgram STT
-        if YoutubeDL is None:
-            return jsonify({ 'error': 'yt_dlp_unavailable' }), 500
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'nocheckcertificate': True,
-            'noprogress': True,
-            'noplaylist': True,
-            'geo_bypass': True,
-            'http_headers': DEFAULT_HEADERS,
-        }
+        # Extract video ID
+        vid = None
         try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+            if 'watch?v=' in url:
+                vid = url.split('watch?v=')[1].split('&')[0]
+            elif 'youtu.be/' in url:
+                vid = url.split('youtu.be/')[1].split('?')[0]
+            elif '/shorts/' in url:
+                vid = url.split('/shorts/')[1].split('?')[0]
+            elif 'youtube.com/embed/' in url:
+                vid = url.split('/embed/')[1].split('?')[0]
+        except Exception:
+            vid = None
+        
+        if not vid:
+            # Fallback: assume the URL itself is the video ID
+            vid = url
+
+        # Initialize YouTubeTranscriptApi with proxy if available
+        proxy_config = None
+        proxy_username = os.getenv('WEBSHARE_PROXY_USERNAME')
+        proxy_password = os.getenv('WEBSHARE_PROXY_PASSWORD')
+        
+        if WebshareProxyConfig and proxy_username and proxy_password:
+            # Use Webshare rotating residential proxies to avoid IP blocks
+            proxy_config = WebshareProxyConfig(
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
+            )
+        
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config) if proxy_config else YouTubeTranscriptApi()
+        
+        try:
+            # Try fetching with preferred languages
+            fetched = None
+            error_msg = None
+            
+            # First try with preferred languages
+            for lang in preferred_langs:
+                try:
+                    fetched = ytt_api.fetch(vid, languages=[lang])
+                    if fetched:
+                        break
+                except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as e:
+                    error_msg = str(e)
+                    continue
+                except Exception as e:
+                    error_msg = str(e)
+                    # Check for IP block errors
+                    if 'RequestBlocked' in str(e) or 'IpBlocked' in str(e):
+                        return jsonify({ 'error': 'ip_blocked', 'detail': 'YouTube blocked the request. Configure proxy settings.' }), 429
+                    continue
+            
+            # If no preferred language worked, try without language preference
+            if not fetched:
+                try:
+                    fetched = ytt_api.fetch(vid)
+                except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as e:
+                    return jsonify({ 'error': 'no_transcript', 'detail': str(e) }), 404
+                except Exception as e:
+                    if 'RequestBlocked' in str(e) or 'IpBlocked' in str(e):
+                        return jsonify({ 'error': 'ip_blocked', 'detail': 'YouTube blocked the request. Configure proxy settings.' }), 429
+                    return jsonify({ 'error': 'fetch_error', 'detail': str(e) }), 502
+            
+            # Extract text from fetched transcript
+            text = '\n'.join([snip.text for snip in fetched if getattr(snip, 'text', '')])
+            
+            if text.strip():
+                return jsonify({ 
+                    'text': text, 
+                    'lang': getattr(fetched, 'language_code', None),
+                    'ext': 'transcript'
+                }), 200
+            else:
+                return jsonify({ 'error': 'empty_transcript' }), 404
+                
         except Exception as e:
-            return jsonify({ 'error': 'extract_error', 'detail': str(e) }), 502
-        audio_url = _pick_audio_url(info)
-        if not audio_url:
-            return jsonify({ 'error': 'audio_not_found' }), 404
-        stt = _stt_with_deepgram(audio_url, preferred_langs)
-        if stt.get('text'):
-            return jsonify(stt), 200
-        return jsonify({ 'error': 'stt_failed' }), 502
+            # Generic error handling
+            error_str = str(e)
+            if 'RequestBlocked' in error_str or 'IpBlocked' in error_str:
+                return jsonify({ 'error': 'ip_blocked', 'detail': 'YouTube blocked the request. Configure proxy settings.' }), 429
+            return jsonify({ 'error': 'unexpected_error', 'detail': error_str }), 500
 
     except Exception as e:
         return jsonify({ 'error': str(e) }), 500
