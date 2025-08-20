@@ -95,14 +95,13 @@ const renderDetails = (video) => {
                 <div class="details-grid">
                     ${renderDetailItem('소재', video.material)}
                     ${renderDetailItem('템플릿 유형', video.template_type)}
-                    ${renderDetailItem('원본 유형', video.source_type)}
                     ${renderDetailItem('후킹 요소', video.hooking)}
                     ${renderDetailItem('기승전결 구조', video.narrative_structure)}
                     ${renderDetailItem('한국 카테고리', kr_categories)}
                     ${renderDetailItem('영문 카테고리', en_categories)}
                     ${renderDetailItem('중국 카테고리', cn_categories)}
-                    ${renderDetailItem('분석 원문', video.analysis_full ? `<pre class="analysis-raw-box">${escapeHtml(video.analysis_full)}</pre>` : '', true)}
                 </div>
+                ${video.analysis_full ? `<h2 style="margin-top:1.5rem;">분석 카드</h2><div class="analysis-cards-grid">${renderAnalysisCards(filterAnalysisText(video.analysis_full))}</div>` : ''}
             </div>
         </div>
     `;
@@ -182,6 +181,58 @@ function escapeHtml(str) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+function filterAnalysisText(text) {
+    try {
+        const lines = String(text).split('\n');
+        const out = [];
+        for (const raw of lines) {
+            const line = raw.trimEnd();
+            // 9, 10 섹션 이후는 제외
+            if (/^\s*9\./.test(line) || /^\s*10\./.test(line)) break;
+            // 프롬프트/지시문 성격의 라인은 제거
+            if (/^\s*\[gpts/i.test(line)) continue;
+            if (/페르소나|핵심 임무|절대 규칙|출력 템플릿/.test(line)) continue;
+            out.push(line);
+        }
+        return out.join('\n').trim();
+    } catch {
+        return text || '';
+    }
+}
+
+function splitAnalysisSections(text) {
+    const sections = [];
+    const lines = String(text).split('\n');
+    let current = null;
+    for (const raw of lines) {
+        const m = raw.match(/^\s*([0-8])\.(.*)$/);
+        if (m) {
+            if (current) sections.push(current);
+            current = { idx: Number(m[1]), title: m[2].trim(), lines: [] };
+        } else if (current) {
+            current.lines.push(raw);
+        }
+    }
+    if (current) sections.push(current);
+    return sections;
+}
+
+function renderAnalysisCards(analysisText) {
+    const secs = splitAnalysisSections(analysisText);
+    if (!secs.length) return '';
+    return secs.map(sec => {
+        const title = `${sec.idx}. ${sec.title || ''}`.trim();
+        const body = sec.lines.join('\n').trim();
+        return `
+        <div class="analysis-card">
+            <div class="analysis-card-header">${escapeHtml(title)}</div>
+            <div class="analysis-card-body">
+                <pre class="analysis-pre">${escapeHtml(body)}</pre>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function drawDopamineChart(canvas, data) {
