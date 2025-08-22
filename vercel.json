@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "api/cron_analyze.py": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "api/transcript.py": {
+      "maxDuration": 60,
+      "memory": 512
+    }
+  },
+  "crons": [
+    { "path": "/api/cron_analyze", "schedule": "*/10 * * * *" }
+  ]
+}
+
+
