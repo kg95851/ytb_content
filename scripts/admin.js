@@ -276,6 +276,11 @@ const scheduleCreateStatus = document.getElementById('schedule-create-status');
 const schedulesTableContainer = document.getElementById('schedules-table-container');
 const scheduleTimeInput = document.getElementById('schedule-time');
 const scheduleLogEl = document.getElementById('schedule-log');
+// YouTube API keys UI
+const ytKeysTextarea = document.getElementById('youtube-api-keys');
+const ytKeysSaveBtn = document.getElementById('save-youtube-keys-btn');
+const ytKeysTestBtn = document.getElementById('test-youtube-keys-btn');
+const ytKeysStatus = document.getElementById('youtube-keys-status');
 
 
 function getStoredGeminiKey() {
@@ -302,6 +307,11 @@ window.addEventListener('DOMContentLoaded', () => {
     if (geminiKeyInput && savedKey) geminiKeyInput.value = savedKey;
     const savedServer = getTranscriptServerUrl();
     if (transcriptServerInput) transcriptServerInput.value = savedServer;
+    // YouTube keys restore
+    try {
+        const savedKeys = localStorage.getItem('youtube_api_keys_list') || '';
+        if (ytKeysTextarea) ytKeysTextarea.value = savedKeys;
+    } catch {}
     // 예약 시간 기본값: 현재 시간 + 30분
     if (scheduleTimeInput) {
         const now = new Date();
@@ -468,6 +478,31 @@ if (scheduleRankingBtn) {
             await refreshSchedulesUI();
         } catch (e) {
             scheduleCreateStatus.textContent = '등록 실패: ' + (e.message || e);
+        }
+    });
+}
+
+if (ytKeysSaveBtn) {
+    ytKeysSaveBtn.addEventListener('click', async () => {
+        const raw = (ytKeysTextarea?.value || '').trim();
+        try { localStorage.setItem('youtube_api_keys_list', raw); } catch {}
+        ytKeysStatus.textContent = '저장되었습니다. (이 키들은 브라우저에만 저장됩니다)';
+    });
+}
+
+if (ytKeysTestBtn) {
+    ytKeysTestBtn.addEventListener('click', async () => {
+        ytKeysStatus.textContent = '테스트 중...';
+        const keys = (ytKeysTextarea?.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        if (!keys.length) { ytKeysStatus.textContent = '키를 입력하세요.'; return; }
+        try {
+            // 간단한 ping: videos list with dummy id (will 400 on bad key)
+            const key = keys[0];
+            const url = 'https://www.googleapis.com/youtube/v3/videos?part=statistics&id=dQw4w9WgXcQ&key=' + encodeURIComponent(key);
+            const res = await fetch(url);
+            ytKeysStatus.textContent = res.ok ? '키 통신 성공 (권한은 별도 확인 필요)' : 'HTTP ' + res.status;
+        } catch (e) {
+            ytKeysStatus.textContent = '테스트 실패: ' + (e.message || e);
         }
     });
 }
