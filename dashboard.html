@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 랭킹 대시보드</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="admin-header" style="margin-bottom:1rem;">
+            <h2>실시간 랭킹 대시보드</h2>
+            <div>
+                <a class="btn" href="index.html">검색 페이지</a>
+                <a class="btn" href="admin.html">관리자</a>
+                <button id="refresh-views-btn" class="btn btn-primary">지금 갱신</button>
+            </div>
+        </div>
+        <div class="data-toolbar">
+            <div>
+                <button id="sort-up-btn" class="btn btn-primary">상승률 내림차순</button>
+                <button id="sort-down-btn" class="btn">하락률 오름차순</button>
+            </div>
+            <input id="rank-search" type="text" placeholder="제목, 채널로 필터..." />
+        </div>
+        <div id="video-table-container"></div>
+        <p id="last-updated" class="info-message" style="text-align:left;"></p>
+    </div>
+    <script type="module" src="./scripts/dashboard.js"></script>
+</body>
+</html>
+
+
