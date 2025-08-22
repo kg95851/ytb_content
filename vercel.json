@@ -11,6 +11,9 @@
   },
   "crons": [
     { "path": "/api/cron_analyze", "schedule": "0 2 * * *" }
+  ],
+  "rewrites": [
+    { "source": "/", "destination": "/dashboard.html" }
   ]
 }
 
