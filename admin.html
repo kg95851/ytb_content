@@ -112,6 +112,28 @@
                     <button id="save-transcript-server-btn" class="btn">서버 주소 저장</button>
                     <p id="transcript-server-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
                 </div>
+
+                <div class="upload-box" style="margin-top: 2rem;">
+                    <h2>예약 실행</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: .75rem;">지정한 시간에 선택 항목 또는 전체 영상 분석을 자동 실행합니다. (대시보드가 열려 있어야 실행됩니다)</p>
+                    <div class="form-group">
+                        <label>대상</label>
+                        <div>
+                            <label><input type="radio" name="schedule-scope" value="selected" checked> 선택 항목</label>
+                            <label style="margin-left:12px;"><input type="radio" name="schedule-scope" value="all"> 전체</label>
+                        </div>
+                        <div style="color:var(--text-secondary); font-size:12px;">선택 항목은 데이터 관리 탭에서 체크된 항목 기준입니다.</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="schedule-time">실행 시각</label>
+                        <input type="datetime-local" id="schedule-time">
+                    </div>
+                    <button id="schedule-create-btn" class="btn btn-primary">예약 등록</button>
+                    <p id="schedule-create-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
+
+                    <h3 style="margin:1.5rem 0 .5rem;">예약 목록</h3>
+                    <div id="schedules-table-container"></div>
+                </div>
             </div>
         </div>
     </div>
