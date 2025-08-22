@@ -11,7 +11,6 @@ const searchInput = document.getElementById('rank-search');
 const sortUpBtn = document.getElementById('sort-up-btn');
 const sortDownBtn = document.getElementById('sort-down-btn');
 const lastUpdatedEl = document.getElementById('last-updated');
-const refreshBtn = document.getElementById('refresh-views-btn');
 
 let allRows = [];
 let currentSort = 'up';
@@ -83,22 +82,5 @@ sortUpBtn?.addEventListener('click', () => { currentSort = 'up'; applyFiltersAnd
 sortDownBtn?.addEventListener('click', () => { currentSort = 'down'; applyFiltersAndSort(); });
 
 loadData();
-
-// 수동 강제 갱신: schedules 컬렉션에 ranking/all 작업을 즉시 추가
-refreshBtn?.addEventListener('click', async () => {
-    try {
-        refreshBtn.disabled = true; refreshBtn.textContent = '갱신 중...';
-        const { getFirestore, collection, doc, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
-        const col = collection(db, 'schedules');
-        const payload = { scope: 'all', ids: [], runAt: Date.now(), type: 'ranking', status: 'pending', createdAt: Date.now(), updatedAt: Date.now() };
-        const newDoc = doc(col);
-        const b = writeBatch(db); b.set(newDoc, payload); await b.commit();
-        await loadData();
-    } catch (e) {
-        console.error(e);
-    } finally {
-        refreshBtn.disabled = false; refreshBtn.textContent = '지금 갱신';
-    }
-});
 
 
