@@ -267,6 +267,76 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
     font-size: 12px;
 }
 
+/* 키워드 카드 */
+.keyword-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: .5rem;
+}
+.keyword-card {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.keyword-card-header {
+    background: #f9fafb;
+    padding: .75rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+.keyword-card-body {
+    padding: .75rem 1rem;
+}
+.keyword-chip {
+    display: inline-block;
+    margin: 4px 6px 0 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: #eef2ff;
+    color: #3730a3;
+    border: 1px solid #c7d2fe;
+    border-radius: 9999px;
+}
+.keyword-chip.empty {
+    background: #f3f4f6;
+    color: #6b7280;
+    border-color: #e5e7eb;
+}
+
+/* 키워드 컨텍스트 메뉴 */
+.keyword-menu {
+    position: absolute;
+    z-index: 1000;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    border-radius: 8px;
+    min-width: 220px;
+    overflow: hidden;
+}
+.keyword-menu-title {
+    font-weight: 600;
+    padding: .6rem .75rem;
+    background: #f9fafb;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+}
+.platform-link {
+    display: block;
+    padding: .6rem .75rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 14px;
+}
+.platform-link:hover {
+    background: #f3f4f6;
+}
+
 .detail-label {
     font-weight: 600;
     color: var(--text-secondary);
