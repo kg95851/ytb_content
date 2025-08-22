@@ -117,6 +117,13 @@
                     <h2>예약 실행</h2>
                     <p style="color: var(--text-secondary); margin-bottom: .75rem;">지정한 시간에 선택 항목 또는 전체 영상 분석을 자동 실행합니다. (대시보드가 열려 있어야 실행됩니다)</p>
                     <div class="form-group">
+                        <label>작업 유형</label>
+                        <div class="inline-options">
+                            <label class="option"><input type="radio" name="schedule-type" value="analysis" checked> 분석 실행</label>
+                            <label class="option"><input type="radio" name="schedule-type" value="ranking"> 랭킹 업데이트</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label>대상</label>
                         <div class="inline-options">
                             <label class="option"><input type="radio" name="schedule-scope" value="selected" checked> 선택 항목</label>
@@ -128,11 +135,16 @@
                         <label for="schedule-time">실행 시각</label>
                         <input type="datetime-local" id="schedule-time">
                     </div>
-                    <button id="schedule-create-btn" class="btn btn-primary">예약 등록</button>
+                    <div style="display:flex; gap:.5rem; align-items:center;">
+                        <button id="schedule-create-btn" class="btn btn-primary">예약 등록</button>
+                        <button id="schedule-ranking-btn" class="btn">랭킹 예약(전체)</button>
+                    </div>
                     <p id="schedule-create-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
 
                     <h3 style="margin:1.5rem 0 .5rem;">예약 목록</h3>
                     <div id="schedules-table-container"></div>
+                    <h3 style="margin:1.5rem 0 .5rem;">예약 실행 로그</h3>
+                    <pre id="schedule-log" class="analysis-log"></pre>
                 </div>
             </div>
         </div>
