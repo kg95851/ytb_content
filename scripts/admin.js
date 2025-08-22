@@ -272,6 +272,7 @@ const transcriptServerStatus = document.getElementById('transcript-server-status
 // 예약 UI 요소
 const scheduleCreateBtn = document.getElementById('schedule-create-btn');
 const scheduleRankingBtn = document.getElementById('schedule-ranking-btn');
+const rankingRefreshNowBtn = document.getElementById('ranking-refresh-now-btn');
 const scheduleCreateStatus = document.getElementById('schedule-create-status');
 const schedulesTableContainer = document.getElementById('schedules-table-container');
 const scheduleTimeInput = document.getElementById('schedule-time');
@@ -503,6 +504,22 @@ if (ytKeysTestBtn) {
             ytKeysStatus.textContent = res.ok ? '키 통신 성공 (권한은 별도 확인 필요)' : 'HTTP ' + res.status;
         } catch (e) {
             ytKeysStatus.textContent = '테스트 실패: ' + (e.message || e);
+        }
+    });
+}
+
+if (rankingRefreshNowBtn) {
+    rankingRefreshNowBtn.addEventListener('click', async () => {
+        scheduleCreateStatus.textContent = '즉시 갱신 요청 생성 중...';
+        try {
+            const col = collection(db, 'schedules');
+            const payload = { scope: 'all', ids: [], runAt: Date.now(), type: 'ranking', status: 'pending', createdAt: Date.now(), updatedAt: Date.now() };
+            const newDoc = doc(col);
+            const b = writeBatch(db); b.set(newDoc, payload); await b.commit();
+            scheduleCreateStatus.textContent = `즉시 갱신 요청 생성 완료: ${newDoc.id}`;
+            await refreshSchedulesUI();
+        } catch (e) {
+            scheduleCreateStatus.textContent = '생성 실패: ' + (e.message || e);
         }
     });
 }
