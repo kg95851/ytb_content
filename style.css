@@ -364,6 +364,7 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .form-group { margin-bottom: 1.5rem; }
 .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
 .form-group input { width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius); }
+.form-group input[type="radio"], .form-group input[type="checkbox"] { width: auto; padding: 0; border: none; border-radius: 0; }
 .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
 .sticky-banner { position: sticky; top: 0; z-index: 999; background: #fff; border: 1px solid var(--border-color); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; margin-bottom: 1rem; }
 .sticky-banner .banner-row { display:flex; justify-content: space-between; align-items:center; margin-bottom: 0.5rem; }
@@ -433,3 +434,7 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .modal-content.small { max-width: 450px; padding: 2rem; }
 #confirm-modal-message { margin: 1rem 0 2rem; }
 .modal-content.small .modal-actions { padding: 0; border-top: 0; }
+
+/* 예약 실행 라디오 옵션 정렬 */
+.inline-options { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.inline-options .option { display: inline-flex; align-items: center; gap: 6px; }
