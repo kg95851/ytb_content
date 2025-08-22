@@ -149,9 +149,10 @@
                         <label for="schedule-time">실행 시각</label>
                         <input type="datetime-local" id="schedule-time">
                     </div>
-                    <div style="display:flex; gap:.5rem; align-items:center;">
+                    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
                         <button id="schedule-create-btn" class="btn btn-primary">예약 등록</button>
                         <button id="schedule-ranking-btn" class="btn">랭킹 예약(전체)</button>
+                        <button id="ranking-refresh-now-btn" class="btn">랭킹 지금 갱신</button>
                     </div>
                     <p id="schedule-create-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
 
