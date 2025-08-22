@@ -76,6 +76,10 @@ const renderDetails = (video) => {
         videoPlayerHTML = `<a href="${video.youtube_url}" target="_blank">${thumbnail}</a>`;
     }
 
+    const kwKO = Array.isArray(video.keywords_ko) ? video.keywords_ko : [];
+    const kwEN = Array.isArray(video.keywords_en) ? video.keywords_en : [];
+    const kwZH = Array.isArray(video.keywords_zh) ? video.keywords_zh : [];
+
     detailsContent.innerHTML = `
         <div class="details-container">
             <div class="video-player-container">
@@ -101,6 +105,13 @@ const renderDetails = (video) => {
                     ${renderDetailItem('영문 카테고리', en_categories)}
                     ${renderDetailItem('중국 카테고리', cn_categories)}
                 </div>
+                ${(kwKO.length || kwEN.length || kwZH.length) ? `
+                <h2 style="margin-top:1.5rem;">검색 키워드</h2>
+                <div class="keyword-cards-grid">
+                    ${renderKeywordCard('한국어', kwKO)}
+                    ${renderKeywordCard('English', kwEN)}
+                    ${renderKeywordCard('中文', kwZH)}
+                </div>` : ''}
                 ${video.analysis_full ? `<h2 style="margin-top:1.5rem;">분석 카드</h2><div class="analysis-cards-grid">${renderAnalysisCards(filterAnalysisText(video.analysis_full))}</div>` : ''}
             </div>
         </div>
@@ -270,6 +281,74 @@ function prettyFormatMarkdownTables(text) {
     }
     return out.join('\n').trim();
 }
+
+function renderKeywordCard(label, keywords) {
+    const safe = Array.isArray(keywords) ? keywords : [];
+    const chips = safe.map(k => `<span class="keyword-chip" data-keyword="${escapeHtml(String(k))}">${escapeHtml(String(k))}</span>`).join('');
+    return `
+    <div class="keyword-card">
+        <div class="keyword-card-header">${escapeHtml(label)}</div>
+        <div class="keyword-card-body">${chips || '<span class="keyword-chip empty">키워드 없음</span>'}</div>
+    </div>`;
+}
+
+// --- 키워드 칩 클릭 시 플랫폼 검색 메뉴 표시 ---
+let __keywordMenuEl = null;
+let __keywordMenuAnchor = null;
+
+function closeKeywordMenu() {
+    if (__keywordMenuEl && __keywordMenuEl.parentNode) {
+        __keywordMenuEl.parentNode.removeChild(__keywordMenuEl);
+    }
+    __keywordMenuEl = null;
+    __keywordMenuAnchor = null;
+    window.removeEventListener('scroll', closeKeywordMenu, true);
+    window.removeEventListener('resize', closeKeywordMenu, true);
+}
+
+function openKeywordMenu(anchorEl, keyword) {
+    if (__keywordMenuAnchor === anchorEl && __keywordMenuEl) {
+        closeKeywordMenu();
+        return;
+    }
+    closeKeywordMenu();
+    const q = encodeURIComponent(String(keyword || ''));
+    const menu = document.createElement('div');
+    menu.className = 'keyword-menu';
+    menu.innerHTML = `
+        <div class="keyword-menu-title">검색: ${escapeHtml(keyword)}</div>
+        <a class="platform-link" href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener noreferrer">YouTube</a>
+        <a class="platform-link" href="https://www.instagram.com/explore/search/keyword/?q=${q}" target="_blank" rel="noopener noreferrer">Instagram</a>
+        <a class="platform-link" href="https://www.tiktok.com/search?q=${q}" target="_blank" rel="noopener noreferrer">TikTok</a>
+        <a class="platform-link" href="https://www.douyin.com/search/${q}" target="_blank" rel="noopener noreferrer">抖音 Douyin</a>
+        <a class="platform-link" href="https://www.xiaohongshu.com/search_result?keyword=${q}" target="_blank" rel="noopener noreferrer">小红书 RED</a>
+    `;
+    document.body.appendChild(menu);
+    __keywordMenuEl = menu;
+    __keywordMenuAnchor = anchorEl;
+    const rect = anchorEl.getBoundingClientRect();
+    const top = window.scrollY + rect.bottom + 6;
+    const left = window.scrollX + rect.left;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    menu.addEventListener('click', (e) => { e.stopPropagation(); });
+    window.addEventListener('scroll', closeKeywordMenu, true);
+    window.addEventListener('resize', closeKeywordMenu, true);
+}
+
+document.addEventListener('click', (e) => {
+    const chip = e.target.closest('.keyword-chip');
+    if (chip && !chip.classList.contains('empty')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const kw = chip.getAttribute('data-keyword') || chip.textContent || '';
+        openKeywordMenu(chip, kw.trim());
+        return;
+    }
+    if (__keywordMenuEl && !e.target.closest('.keyword-menu')) {
+        closeKeywordMenu();
+    }
+});
 
 function drawDopamineChart(canvas, data) {
     if (!canvas || !canvas.getContext || !Array.isArray(data) || data.length === 0) return;
