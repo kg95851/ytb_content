@@ -114,6 +114,20 @@
                 </div>
 
                 <div class="upload-box" style="margin-top: 2rem;">
+                    <h2>YouTube API 키 관리</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: .75rem;">여러 개의 YouTube Data API 키를 줄바꿈으로 입력하세요. 랭킹 업데이트 시 라운드로빈으로 사용합니다.</p>
+                    <div class="form-group">
+                        <label for="youtube-api-keys">API Keys (각 줄에 1개)</label>
+                        <textarea id="youtube-api-keys" style="min-height:120px; width:100%;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <button id="save-youtube-keys-btn" class="btn btn-primary">저장</button>
+                        <button id="test-youtube-keys-btn" class="btn">키 테스트</button>
+                    </div>
+                    <p id="youtube-keys-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
+                </div>
+
+                <div class="upload-box" style="margin-top: 2rem;">
                     <h2>예약 실행</h2>
                     <p style="color: var(--text-secondary); margin-bottom: .75rem;">지정한 시간에 선택 항목 또는 전체 영상 분석을 자동 실행합니다. (대시보드가 열려 있어야 실행됩니다)</p>
                     <div class="form-group">
