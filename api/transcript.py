@@ -32,6 +32,17 @@ except Exception:
 
 app = Flask(__name__)
 
+# Basic CORS so frontend (e.g., Vite dev server) can call this API directly
+@app.after_request
+def add_cors_headers(resp):
+    try:
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    except Exception:
+        pass
+    return resp
+
 DEFAULT_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     'Accept': '*/*',
@@ -245,4 +256,13 @@ def transcript_root():
     except Exception as e:
         return jsonify({ 'error': str(e) }), 500
 
+
+@app.route('/health', methods=['GET'])
+def health():
+    return ('ok', 200)
+
+
+if __name__ == '__main__':
+    # Run local server on the same port the frontend expects by default
+    app.run(host='0.0.0.0', port=8787)
 
