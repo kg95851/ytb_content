@@ -279,16 +279,13 @@ function setStoredGeminiKey(key) {
 function getTranscriptServerUrl() {
     try {
         const saved = localStorage.getItem(TRANSCRIPT_SERVER_STORAGE);
-        if (saved) return saved;
-        const isLocal = /localhost|127\.0\.0\.1/.test(window.location.hostname);
-        return isLocal ? 'http://localhost:8787' : '/api';
+        return saved || '/api';
     } catch {
-        const isLocal = /localhost|127\.0\.0\.1/.test(window.location.hostname);
-        return isLocal ? 'http://localhost:8787' : '/api';
+        return '/api';
     }
 }
 function setTranscriptServerUrl(url) {
-    try { localStorage.setItem(TRANSCRIPT_SERVER_STORAGE, url || 'http://localhost:8787'); } catch {}
+    try { localStorage.setItem(TRANSCRIPT_SERVER_STORAGE, url || '/api'); } catch {}
 }
 
 // 초기화: 저장된 값 복원
