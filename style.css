@@ -365,6 +365,7 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
 .form-group input { width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius); }
 .form-group input[type="radio"], .form-group input[type="checkbox"] { width: auto; padding: 0; border: none; border-radius: 0; }
+.form-group textarea { width: 100%; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius); font-size: 15px; line-height: 1.6; }
 .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
 .sticky-banner { position: sticky; top: 0; z-index: 999; background: #fff; border: 1px solid var(--border-color); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; margin-bottom: 1rem; }
 .sticky-banner .banner-row { display:flex; justify-content: space-between; align-items:center; margin-bottom: 0.5rem; }
@@ -438,3 +439,7 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 /* 예약 실행 라디오 옵션 정렬 */
 .inline-options { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .inline-options .option { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 나의 영상 체크 - 대본/체크리스트 큰 입력 영역 */
+#my-transcript { min-height: 380px; resize: vertical; }
+#my-checklist { min-height: 240px; resize: vertical; }
