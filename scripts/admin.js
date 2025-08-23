@@ -576,6 +576,17 @@ async function pollAndRunSchedules() {
     try {
         const rows = await listSchedules();
         const now = Date.now();
+        // 랭킹 작업이 기한 도래 시 서버리스 엔드포인트를 깨워준다
+        const dueRanking = rows.filter(r => r.type === 'ranking' && r.status === 'pending' && r.runAt <= now + 1000);
+        if (dueRanking.length) {
+            try {
+                appendScheduleLog(`랭킹 예약 감지 (${dueRanking.length}건) — 서버리스 호출`);
+                const res = await fetch('/api/cron_analyze');
+                appendScheduleLog(`서버리스 응답 ${res.ok ? 'OK' : 'HTTP ' + res.status}`);
+            } catch (e) {
+                appendScheduleLog(`서버리스 호출 실패 ${e?.message || e}`);
+            }
+        }
         // 분석 작업만 처리 (랭킹 작업은 서버리스 처리)
         const dueAnalysis = rows.filter(r => r.type !== 'ranking' && r.status === 'pending' && r.runAt <= now + 1000);
         for (const job of dueAnalysis) {
