@@ -487,7 +487,17 @@ if (ytKeysSaveBtn) {
     ytKeysSaveBtn.addEventListener('click', async () => {
         const raw = (ytKeysTextarea?.value || '').trim();
         try { localStorage.setItem('youtube_api_keys_list', raw); } catch {}
-        ytKeysStatus.textContent = '저장되었습니다. (이 키들은 브라우저에만 저장됩니다)';
+        ytKeysStatus.textContent = '저장되었습니다. 서버에 동기화 중...';
+        // Firestore 시스템 설정에 키 저장 (서버리스에서 사용)
+        try {
+            const ref = doc(db, 'system', 'settings');
+            await updateDoc(ref, { youtube_api_keys: raw, updatedAt: Date.now() }).catch(async () => {
+                const b = writeBatch(db); b.set(ref, { youtube_api_keys: raw, updatedAt: Date.now() }, { merge: true }); await b.commit();
+            });
+            ytKeysStatus.textContent = '서버 저장 완료. (서버리스 갱신에 사용됩니다)';
+        } catch (e) {
+            ytKeysStatus.textContent = '서버 저장 실패: ' + (e.message || e);
+        }
     });
 }
 
@@ -518,6 +528,8 @@ if (rankingRefreshNowBtn) {
             const b = writeBatch(db); b.set(newDoc, payload); await b.commit();
             scheduleCreateStatus.textContent = `즉시 갱신 요청 생성 완료: ${newDoc.id}`;
             await refreshSchedulesUI();
+            // 서버리스 크론 즉시 트리거 (배포 환경에서만 유효)
+            try { await fetch('/api/cron_analyze'); } catch {}
         } catch (e) {
             scheduleCreateStatus.textContent = '생성 실패: ' + (e.message || e);
         }
@@ -541,11 +553,15 @@ async function pollAndRunSchedules() {
     try {
         const rows = await listSchedules();
         const now = Date.now();
-        const due = rows.filter(r => r.status === 'pending' && r.runAt <= now + 1000);
-        for (const job of due) {
-            // 마킹: running
+        // 분석 작업만 처리 (랭킹 작업은 서버리스 처리)
+        const dueAnalysis = rows.filter(r => r.type !== 'ranking' && r.status === 'pending' && r.runAt <= now + 1000);
+        for (const job of dueAnalysis) {
+            // 랭킹 작업은 서버리스에서 처리 → 로컬에서는 건드리지 않음
+            // (보호) 혹시 남아있으면 무시
+            if (job.type === 'ranking') { appendScheduleLog(`랭킹 작업 감지 [${job.id}] — 서버리스 처리 대기`); continue; }
+            // 분석 작업만 로컬에서 실행
             await updateDoc(doc(db, 'schedules', job.id), { status: 'running', updatedAt: Date.now() }).catch(()=>{});
-            appendScheduleLog(`작업 시작 [${job.id}] (${job.type === 'ranking' ? '랭킹' : '분석'})`);
+            appendScheduleLog(`작업 시작 [${job.id}] (분석)`);
             try {
                 if (job.scope === 'all') {
                     const ids = currentData.map(v => v.id);
