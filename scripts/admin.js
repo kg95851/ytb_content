@@ -275,6 +275,7 @@ const scheduleRankingBtn = document.getElementById('schedule-ranking-btn');
 const rankingRefreshNowBtn = document.getElementById('ranking-refresh-now-btn');
 const scheduleCreateStatus = document.getElementById('schedule-create-status');
 const schedulesTableContainer = document.getElementById('schedules-table-container');
+const schedulesBulkDeleteBtn = document.getElementById('schedules-bulk-delete-btn');
 const scheduleTimeInput = document.getElementById('schedule-time');
 const scheduleLogEl = document.getElementById('schedule-log');
 // YouTube API keys UI
@@ -417,10 +418,11 @@ function renderSchedulesTable(rows) {
     if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
     const html = `
     <table class="data-table">
-        <thead><tr><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
         <tbody>
             ${rows.map(r => `
             <tr data-id="${r.id}">
+                <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
                 <td>${r.id}</td>
                 <td>${r.type === 'ranking' ? '랭킹' : '분석'}</td>
                 <td>${r.scope === 'all' ? '전체' : `선택(${(r.ids||[]).length})`}</td>
@@ -433,6 +435,10 @@ function renderSchedulesTable(rows) {
         </tbody>
     </table>`;
     schedulesTableContainer.innerHTML = html;
+    const selectAll = document.getElementById('sched-select-all');
+    if (selectAll) selectAll.addEventListener('change', (e) => {
+        document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
+    });
 }
 
 async function refreshSchedulesUI() {
@@ -520,7 +526,7 @@ if (ytKeysTestBtn) {
 
 if (rankingRefreshNowBtn) {
     rankingRefreshNowBtn.addEventListener('click', async () => {
-        scheduleCreateStatus.textContent = '즉시 갱신 요청 생성 중...';
+        scheduleCreateStatus.textContent = '즉시 갱신 요청 생성 중... (서버리스 호출 대기)';
         try {
             const col = collection(db, 'schedules');
             const payload = { scope: 'all', ids: [], runAt: Date.now(), type: 'ranking', status: 'pending', createdAt: Date.now(), updatedAt: Date.now() };
@@ -529,7 +535,13 @@ if (rankingRefreshNowBtn) {
             scheduleCreateStatus.textContent = `즉시 갱신 요청 생성 완료: ${newDoc.id}`;
             await refreshSchedulesUI();
             // 서버리스 크론 즉시 트리거 (배포 환경에서만 유효)
-            try { await fetch('/api/cron_analyze'); } catch {}
+            try {
+                appendScheduleLog(`랭킹 작업 전송 [${newDoc.id}] — 서버리스 호출 시도`);
+                const res = await fetch('/api/cron_analyze');
+                appendScheduleLog(`서버리스 응답 [${newDoc.id}] ${res.ok ? 'OK' : 'HTTP ' + res.status}`);
+            } catch (e) {
+                appendScheduleLog(`서버리스 호출 실패 [${newDoc.id}] ${e?.message || e}`);
+            }
         } catch (e) {
             scheduleCreateStatus.textContent = '생성 실패: ' + (e.message || e);
         }
@@ -544,6 +556,17 @@ if (schedulesTableContainer) {
             await cancelSchedule(id);
             await refreshSchedulesUI();
         }
+    });
+}
+
+if (schedulesBulkDeleteBtn) {
+    schedulesBulkDeleteBtn.addEventListener('click', async () => {
+        const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
+        if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
+        const b = writeBatch(db);
+        ids.forEach(id => b.delete(doc(db, 'schedules', id)));
+        await b.commit();
+        await refreshSchedulesUI();
     });
 }
 
