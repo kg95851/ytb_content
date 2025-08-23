@@ -16,8 +16,9 @@ let allRows = [];
 let currentSort = 'up';
 
 function computeChangePct(doc) {
-    const curr = Number(doc.views_numeric || 0);
-    const prev = Number(doc.views_prev_numeric || 0) || Number(doc.views_baseline_numeric || 0) || Number(doc._import_views || 0) || curr;
+    const curr = Number(doc.views_numeric || doc.views || 0);
+    // prev 우선순위: views_prev_numeric > views_baseline_numeric > 최초 views
+    const prev = Number(doc.views_prev_numeric || 0) || Number(doc.views_baseline_numeric || 0) || Number(doc.views || 0) || curr;
     if (!prev) return 0;
     return ((curr - prev) / prev) * 100;
 }
