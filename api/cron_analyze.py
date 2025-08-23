@@ -301,6 +301,94 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     return updated
 
 
+def _get_youtube_keys(db) -> List[str]:
+    keys_raw = os.getenv('YOUTUBE_API_KEYS', '')
+    keys = [k.strip() for k in keys_raw.split(',') if k.strip()]
+    if keys:
+        return keys
+    # Firestore fallback: system/settings.youtube_api_keys (newline or comma separated)
+    try:
+        snap = db.collection('system').document('settings').get()
+        if snap.exists:
+            data = snap.to_dict() or {}
+            raw = str(data.get('youtube_api_keys') or '')
+            if raw:
+                parts = [p.strip() for p in raw.replace('\r', '\n').replace(',', '\n').split('\n') if p.strip()]
+                return parts
+    except Exception:
+        pass
+    return []
+
+
+def _update_views_for_videos(db, ids: List[str]) -> int:
+    keys = _get_youtube_keys(db)
+    if not keys:
+        return 0
+    import random
+    key = random.choice(keys)
+    base = 'https://www.googleapis.com/youtube/v3/videos'
+    id_map = {}
+    vids = []
+    for vid in ids:
+        snap = db.collection('videos').document(vid).get()
+        if not snap.exists:
+            continue
+        data = snap.to_dict() or {}
+        url = data.get('youtube_url') or ''
+        video_id = None
+        try:
+            if 'watch?v=' in url:
+                video_id = url.split('watch?v=')[1].split('&')[0]
+            elif 'youtu.be/' in url:
+                video_id = url.split('youtu.be/')[1].split('?')[0]
+            elif '/shorts/' in url:
+                video_id = url.split('/shorts/')[1].split('?')[0]
+            elif 'youtube.com/embed/' in url:
+                video_id = url.split('/embed/')[1].split('?')[0]
+        except Exception:
+            video_id = None
+        if video_id:
+            id_map[video_id] = vid
+            vids.append(video_id)
+    if not vids:
+        return 0
+    now_ms = int(time.time()*1000)
+    updated = 0
+    for i in range(0, len(vids), 50):
+        chunk = vids[i:i+50]
+        # rotate key per chunk
+        key = random.choice(keys)
+        params = { 'part': 'statistics', 'id': ','.join(chunk), 'key': key }
+        res = requests.get(base, params=params, timeout=20)
+        if res.status_code != 200:
+            continue
+        data = res.json()
+        for item in data.get('items', []):
+            video_id = item.get('id')
+            mapped = id_map.get(video_id)
+            stats = item.get('statistics', {})
+            views = int(stats.get('viewCount') or 0)
+            if mapped:
+                ref = db.collection('videos').document(mapped)
+                snap = ref.get()
+                prev = 0
+                basev = 0
+                if snap.exists:
+                    old = snap.to_dict() or {}
+                    prev = int(old.get('views_numeric') or 0)
+                    basev = int(old.get('views_baseline_numeric') or 0)
+                patch = {
+                    'views_prev_numeric': prev or basev or views,
+                    'views_numeric': views,
+                    'views_last_checked_at': now_ms
+                }
+                if not basev:
+                    patch['views_baseline_numeric'] = prev or views
+                ref.set(patch, merge=True)
+                updated += 1
+    return updated
+
+
 def _process_job_batch(db, job: Dict[str, Any], batch_size: int = 3) -> Dict[str, Any]:
     scope = job.get('scope')
     remaining = list(job.get('remainingIds') or job.get('ids') or [])
@@ -310,18 +398,23 @@ def _process_job_batch(db, job: Dict[str, Any], batch_size: int = 3) -> Dict[str
         remaining = [doc.id for doc in vids]
     ids_to_run = remaining[:batch_size]
     left = remaining[batch_size:]
-    for vid in ids_to_run:
-        try:
-            snap = db.collection('videos').document(vid).get()
-            if not snap.exists:
-                continue
-            video = { 'id': snap.id, **snap.to_dict() }
-            updated = _analyze_video(video)
-            if updated:
-                db.collection('videos').document(vid).update(updated)
-        except Exception as e:
-            # mark error on job for visibility
-            db.collection('schedules').document(job['id']).set({ 'lastError': str(e) }, merge=True)
+    if job.get('type') == 'ranking':
+        cnt = _update_views_for_videos(db, ids_to_run)
+        if cnt == 0:
+            db.collection('schedules').document(job['id']).set({ 'lastError': 'no_updates_or_missing_keys' }, merge=True)
+    else:
+        for vid in ids_to_run:
+            try:
+                snap = db.collection('videos').document(vid).get()
+                if not snap.exists:
+                    continue
+                video = { 'id': snap.id, **snap.to_dict() }
+                updated = _analyze_video(video)
+                if updated:
+                    db.collection('videos').document(vid).update(updated)
+            except Exception as e:
+                # mark error on job for visibility
+                db.collection('schedules').document(job['id']).set({ 'lastError': str(e) }, merge=True)
     # update job progress
     patch = { 'updatedAt': int(time.time()*1000) }
     if left:
