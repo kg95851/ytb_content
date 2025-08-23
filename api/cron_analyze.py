@@ -375,15 +375,30 @@ def _update_views_for_videos(db, ids: List[str]) -> int:
                 basev = 0
                 if snap.exists:
                     old = snap.to_dict() or {}
+                    def _parse_human(v):
+                        try:
+                            if isinstance(v, (int, float)):
+                                return int(v)
+                            s = str(v or '')
+                            digits = ''.join(ch for ch in s if ch.isdigit())
+                            return int(digits) if digits else 0
+                        except Exception:
+                            return 0
                     prev = int(old.get('views_numeric') or 0)
                     basev = int(old.get('views_baseline_numeric') or 0)
+                    orig = _parse_human(old.get('views'))
+                else:
+                    orig = 0
+                # 이전값 결정: 기존 current > baseline > import original
+                prev_for_patch = prev or basev or orig
                 patch = {
-                    'views_prev_numeric': prev or basev or views,
+                    'views_prev_numeric': prev_for_patch,
                     'views_numeric': views,
                     'views_last_checked_at': now_ms
                 }
                 if not basev:
-                    patch['views_baseline_numeric'] = prev or views
+                    # 최초 베이스라인은 기존 current 또는 import 원본
+                    patch['views_baseline_numeric'] = prev or orig or views
                 ref.set(patch, merge=True)
                 updated += 1
     return updated
