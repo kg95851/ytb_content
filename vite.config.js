@@ -14,6 +14,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         admin: resolve(__dirname, 'admin.html'),
         details: resolve(__dirname, 'details.html'), // 'details.html' 추가
+        my: resolve(__dirname, 'my.html'),
       },
     },
   },
