@@ -577,7 +577,7 @@ async function pollAndRunSchedules() {
         const rows = await listSchedules();
         const now = Date.now();
         // 랭킹 작업이 기한 도래 시 서버리스 엔드포인트를 깨워준다
-        const dueRanking = rows.filter(r => r.type === 'ranking' && r.status === 'pending' && r.runAt <= now + 1000);
+        const dueRanking = rows.filter(r => r.type === 'ranking' && (r.status === 'pending' || r.status === 'running') && r.runAt <= now + 1000);
         if (dueRanking.length) {
             try {
                 appendScheduleLog(`랭킹 예약 감지 (${dueRanking.length}건) — 서버리스 호출`);
