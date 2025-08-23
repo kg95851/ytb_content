@@ -461,10 +461,22 @@ def cron_analyze():
             return jsonify({ 'ok': True, 'processed': 0 })
 
         processed = 0
+        ranking_batch_size = int(os.getenv('RANKING_BATCH_SIZE', '250') or '250')
+        analysis_batch_size = int(os.getenv('ANALYSIS_BATCH_SIZE', '3') or '3')
+        time_budget_sec = int(os.getenv('RANKING_TIME_BUDGET', '40') or '40')
         for job in due:
             # take lease: set running
             db.collection('schedules').document(job['id']).set({ 'status': 'running', 'updatedAt': now }, merge=True)
-            _process_job_batch(db, job, batch_size=3)
+            if job.get('type') == 'ranking':
+                deadline = time.time() + max(5, time_budget_sec)
+                while time.time() < deadline:
+                    patch = _process_job_batch(db, job, batch_size=ranking_batch_size)
+                    job['remainingIds'] = patch.get('remainingIds', job.get('remainingIds', []))
+                    job['status'] = patch.get('status', job.get('status'))
+                    if job['status'] == 'done' or not job.get('remainingIds'):
+                        break
+            else:
+                _process_job_batch(db, job, batch_size=analysis_batch_size)
             processed += 1
         return jsonify({ 'ok': True, 'processed': processed })
     except Exception as e:
