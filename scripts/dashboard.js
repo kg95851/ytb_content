@@ -16,9 +16,14 @@ let allRows = [];
 let currentSort = 'up';
 
 function computeChangePct(doc) {
-    const curr = Number(doc.views_numeric || doc.views || 0);
-    // prev 우선순위: views_prev_numeric > views_baseline_numeric > 최초 views
-    const prev = Number(doc.views_prev_numeric || 0) || Number(doc.views_baseline_numeric || 0) || Number(doc.views || 0) || curr;
+    const parseNum = (v) => {
+        if (typeof v === 'number') return v;
+        const s = String(v || '');
+        const digits = s.replace(/[^0-9]/g, '');
+        return digits ? Number(digits) : 0;
+    };
+    const curr = parseNum(doc.views_numeric || doc.views || 0);
+    const prev = parseNum(doc.views_prev_numeric || doc.views_baseline_numeric || doc.views || 0) || curr;
     if (!prev) return 0;
     return ((curr - prev) / prev) * 100;
 }
