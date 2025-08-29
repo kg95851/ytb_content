@@ -27,6 +27,10 @@ const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const runAnalysisSelectedBtn = document.getElementById('run-analysis-selected-btn');
 const runAnalysisAllBtn = document.getElementById('run-analysis-all-btn');
 const analysisStatus = document.getElementById('analysis-status');
+// 댓글 분석 UI 요소
+const commentsAnalysisStatus = document.getElementById('comments-analysis-status');
+const runCommentsSelectedBtn = document.getElementById('run-comments-selected-btn');
+const commentCountInput = document.getElementById('comment-count-input');
 // 상단 고정 배너 요소
 const analysisBanner = document.getElementById('analysis-banner');
 const analysisBannerText = document.getElementById('analysis-banner-text');
@@ -1017,6 +1021,134 @@ if (runAnalysisAllBtn) {
         const confirmRun = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
         if (!confirmRun) return;
         await runAnalysisForIds(ids);
+    });
+}
+
+// ---------------- YouTube 댓글 수집/분석 ----------------
+function getStoredYoutubeApiKeys() {
+    try {
+        const raw = localStorage.getItem('youtube_api_keys_list') || '';
+        return raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+function pickRotatingKey(keys, index) {
+    if (!keys.length) return '';
+    return keys[index % keys.length];
+}
+
+function extractVideoIdFromUrl(urlStr) {
+    try {
+        const url = new URL(urlStr);
+        if (url.hostname.includes('youtu.be')) return url.pathname.split('/').pop();
+        if (url.searchParams.get('v')) return url.searchParams.get('v');
+        if (url.pathname.includes('/shorts/')) return url.pathname.split('/').pop();
+        return '';
+    } catch { return ''; }
+}
+
+async function fetchYoutubeComments(videoId, maxCount, keys) {
+    const out = [];
+    let pageToken = '';
+    let reqIndex = 0;
+    let failureStreak = 0;
+    const maxFailures = Math.max(3, keys.length * 3);
+    while (out.length < maxCount) {
+        const key = pickRotatingKey(keys, reqIndex++);
+        if (!key) throw new Error('YouTube API 키가 설정되지 않았습니다. 설정 탭에서 키를 저장하세요.');
+        const remaining = maxCount - out.length;
+        const pageSize = Math.max(1, Math.min(100, remaining));
+        const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
+        url.searchParams.set('part', 'snippet,replies');
+        url.searchParams.set('videoId', videoId);
+        url.searchParams.set('maxResults', String(pageSize));
+        url.searchParams.set('order', 'relevance');
+        url.searchParams.set('key', key);
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+            failureStreak++;
+            if (failureStreak >= maxFailures) {
+                throw new Error('YouTube API 오류 반복: ' + res.status);
+            }
+            // 다른 키로 재시도
+            continue;
+        }
+        const data = await res.json();
+        failureStreak = 0;
+        const items = Array.isArray(data.items) ? data.items : [];
+        for (const it of items) {
+            try {
+                const sn = it.snippet?.topLevelComment?.snippet;
+                if (!sn) continue;
+                out.push({
+                    author: sn.authorDisplayName || '',
+                    text: sn.textDisplay || sn.textOriginal || '',
+                    likeCount: Number(sn.likeCount || 0),
+                    publishedAt: sn.publishedAt || '',
+                    updatedAt: sn.updatedAt || '',
+                    authorProfileImageUrl: sn.authorProfileImageUrl || '',
+                    authorChannelUrl: sn.authorChannelUrl || ''
+                });
+                if (out.length >= maxCount) break;
+            } catch {}
+        }
+        if (out.length >= maxCount) break;
+        pageToken = data.nextPageToken || '';
+        if (!pageToken) break;
+    }
+    return out;
+}
+
+function pickTopComments(comments, topN = 10) {
+    const arr = Array.isArray(comments) ? comments.slice() : [];
+    arr.sort((a, b) => (Number(b.likeCount || 0) - Number(a.likeCount || 0)));
+    return arr.slice(0, Math.max(1, topN));
+}
+
+async function runCommentsAnalysisForIds(ids) {
+    if (!commentsAnalysisStatus) return;
+    commentsAnalysisStatus.style.display = 'block';
+    commentsAnalysisStatus.style.color = '';
+    const wantCount = Math.max(1, Math.min(1000, Number(commentCountInput?.value || 50)));
+    const keys = getStoredYoutubeApiKeys();
+    if (!keys.length) { commentsAnalysisStatus.textContent = 'YouTube API 키가 없습니다. 설정 탭에서 저장하세요.'; return; }
+    commentsAnalysisStatus.textContent = `댓글 수집 시작... (총 ${ids.length}개, 각 ${wantCount}개)`;
+    showAnalysisBanner(`댓글 수집: 총 ${ids.length}개 대상`);
+    let done = 0, failed = 0;
+    for (const id of ids) {
+        try {
+            const ref = doc(db, 'videos', id);
+            const snap = await getDoc(ref);
+            if (!snap.exists()) { failed++; continue; }
+            const video = { id, ...snap.data() };
+            const vid = extractVideoIdFromUrl(video.youtube_url || '');
+            if (!vid) { failed++; appendAnalysisLog(`(${id}) YouTube ID 파싱 실패`); continue; }
+            appendAnalysisLog(`(${id}) 댓글 수집 시작 (최대 ${wantCount}개)`);
+            const comments = await fetchYoutubeComments(vid, wantCount, keys);
+            appendAnalysisLog(`(${id}) 댓글 수집 완료 ${comments.length}개`);
+            const top = pickTopComments(comments, 20);
+            const payload = { comments_fetched_at: Date.now(), comments_total: comments.length, comments_top: top };
+            await updateDoc(ref, payload);
+            done++;
+            updateAnalysisProgress(done, ids.length, `댓글 완료: ${video.title || id}`);
+        } catch (e) {
+            failed++;
+            appendAnalysisLog(`(${id}) 댓글 오류: ${e.message || e}`);
+        }
+    }
+    commentsAnalysisStatus.style.color = failed ? 'orange' : 'green';
+    commentsAnalysisStatus.textContent = `댓글 수집 완료: 성공 ${done}, 실패 ${failed}`;
+    await fetchAndDisplayData();
+}
+
+if (runCommentsSelectedBtn) {
+    runCommentsSelectedBtn.addEventListener('click', async () => {
+        const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.dataset.id);
+        if (ids.length === 0) { alert('댓글을 수집할 항목을 선택하세요.'); return; }
+        await runCommentsAnalysisForIds(ids);
     });
 }
 
