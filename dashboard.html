@@ -19,15 +19,34 @@
                 <a class="btn" href="admin.html">관리자</a>
             </div>
         </div>
-        <div class="data-toolbar">
-            <div>
-                <button id="sort-up-btn" class="btn btn-primary">상승률 내림차순</button>
-                <button id="sort-down-btn" class="btn">하락률 오름차순</button>
-            </div>
-            <input id="rank-search" type="text" placeholder="제목, 채널로 필터..." />
+        <div class="tabs">
+            <button class="tab-link active" data-tab="video-board">영상별 랭킹</button>
+            <button class="tab-link" data-tab="channel-board">채널별 랭킹</button>
         </div>
-        <div id="video-table-container"></div>
-        <p id="last-updated" class="info-message" style="text-align:left;"></p>
+
+        <div id="video-board" class="tab-content active">
+            <div class="data-toolbar">
+                <div>
+                    <button id="sort-up-btn" class="btn btn-primary">상승률 내림차순</button>
+                    <button id="sort-down-btn" class="btn">하락률 오름차순</button>
+                </div>
+                <input id="rank-search" type="text" placeholder="제목, 채널로 필터..." />
+            </div>
+            <div id="video-table-container"></div>
+            <p id="last-updated" class="info-message" style="text-align:left;"></p>
+        </div>
+
+        <div id="channel-board" class="tab-content">
+            <div class="data-toolbar">
+                <div>
+                    <button id="channel-sort-abs-btn" class="btn btn-primary">상승 조회수 내림차순</button>
+                    <button id="channel-sort-pct-btn" class="btn">증가율 내림차순</button>
+                </div>
+                <input id="channel-search" type="text" placeholder="채널명으로 필터..." />
+            </div>
+            <div id="channel-table-container"></div>
+            <p class="info-message" style="text-align:left;">채널별 랭킹은 각 채널의 영상 상승 조회수를 합산하여 산출합니다.</p>
+        </div>
     </div>
     <script type="module" src="./scripts/dashboard.js"></script>
 </body>
