@@ -15,6 +15,7 @@ export default defineConfig({
         admin: resolve(__dirname, 'admin.html'),
         details: resolve(__dirname, 'details.html'), // 'details.html' 추가
         my: resolve(__dirname, 'my.html'),
+        channel: resolve(__dirname, 'channel.html'),
       },
     },
   },
