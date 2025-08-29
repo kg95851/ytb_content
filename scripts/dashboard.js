@@ -176,7 +176,7 @@ function renderChannelTable(rows) {
             <td>${r.videos.length}</td>
             <td>${Number(r.totalRiseAbs || 0).toLocaleString()}</td>
             <td style="color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
-            <td>${r.representative ? `<a class="btn btn-details" href="details.html?id=${r.representative.id}" target="_blank">자세히</a>` : '-'}</td>
+            <td><a class="btn btn-details" href="channel.html?name=${encodeURIComponent(r.channel)}" target="_blank">자세히</a></td>
           </tr>
         `).join('')}
       </tbody>
