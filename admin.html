@@ -59,12 +59,15 @@
                         <button id="bulk-delete-btn" class="btn btn-danger">선택 삭제</button>
                         <button id="run-analysis-selected-btn" class="btn btn-primary">선택 분석 실행 (Gemini)</button>
                         <button id="run-analysis-all-btn" class="btn btn-primary">전체 분석 실행 (Gemini)</button>
+                        <input type="number" id="comment-count-input" min="1" value="50" placeholder="댓글 수" style="width:110px;">
+                        <button id="run-comments-selected-btn" class="btn">선택 댓글분석 (YouTube)</button>
                     </div>
                     <input type="text" id="data-search-input" placeholder="제목, 채널명 등으로 검색...">
                 </div>
                 <div id="data-table-container">
                     </div>
                 <p id="analysis-status" class="info-message" style="display:none"></p>
+                <p id="comments-analysis-status" class="info-message" style="display:none"></p>
             </div>
 
             <div id="upload-data" class="tab-content">
