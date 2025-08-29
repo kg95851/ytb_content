@@ -9,6 +9,7 @@ const db = getFirestore(app);
 
 const detailsContent = document.getElementById('details-content');
 const dopamineGraphContainer = document.getElementById('dopamine-graph');
+const topCommentsContainer = document.getElementById('top-comments');
 
 // URL에서 비디오 ID 가져오기
 const getVideoIdFromUrl = () => {
@@ -173,6 +174,31 @@ const renderDetails = (video) => {
         drawDopamineChart(canvas, video.dopamine_graph);
         // 리사이즈 대응(간단)
         window.addEventListener('resize', () => drawDopamineChart(canvas, video.dopamine_graph));
+    }
+
+    // 상위 인기 댓글 표시
+    if (topCommentsContainer) {
+        const list = Array.isArray(video.comments_top) ? video.comments_top : [];
+        if (!list.length) {
+            topCommentsContainer.innerHTML = '<p class="info-message">수집된 인기 댓글이 없습니다. 관리자에서 댓글분석을 실행하세요.</p>';
+        } else {
+            const html = list.map((c) => {
+                const author = escapeHtml(c.author || '');
+                const text = escapeHtml((c.text || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''));
+                const likes = Number(c.likeCount || 0).toLocaleString();
+                const when = c.publishedAt ? new Date(c.publishedAt).toLocaleString() : '';
+                const authorImg = c.authorProfileImageUrl ? `<img src="${c.authorProfileImageUrl}" alt="${author}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">` : '';
+                const authorLinkOpen = c.authorChannelUrl ? `<a href="${c.authorChannelUrl}" target="_blank" rel="noopener noreferrer">` : '';
+                const authorLinkClose = c.authorChannelUrl ? `</a>` : '';
+                return `
+                <div class="detail-item">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">${authorImg}${authorLinkOpen}<strong>${author}</strong>${authorLinkClose}<span style="color:#6b7280; font-size:12px;">${when}</span></div>
+                    <div style="white-space:pre-wrap;">${text}</div>
+                    <div style="margin-top:6px;color:#6b7280; font-size:12px;">좋아요 ${likes}</div>
+                </div>`;
+            }).join('');
+            topCommentsContainer.innerHTML = `<div class="details-grid">${html}</div>`;
+        }
     }
 };
 
