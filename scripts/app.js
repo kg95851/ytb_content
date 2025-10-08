@@ -41,6 +41,7 @@ let viewMode = 'video'; // 'channel'
 let currentPage = 1;     // 1-based 페이지 인덱스
 let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
 let subsFilter = { preset: 'all', min: null, max: null };
+let expandedChannels = new Set();
 
 // 페이지네이션 쿼리 상태
 let lastVisible = null;
@@ -552,16 +553,22 @@ function renderChannelView() {
             const title = (v.title || '').replace(/"/g, '');
             return `<a class="thumb-link" href="${vid}" target="_blank" title="${title}">${t}</a>`;
         }).join('');
+        const isOpen = expandedChannels.has(r.channel);
         return `
-            <tr>
-            <td>${startIndex + idx + 1}</td>
-            <td>${thumb}</td>
-            <td class="table-title">${r.channel}</td>
-            <td>${r.videos.length}</td>
-            <td>${fmt(r.totalRiseAbs)}</td>
-            <td style=\"color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}\">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
-            <td><div class=\"thumb-list\">${thumbs}</div></td>
-        </tr>`;
+            <tr class="channel-row" data-channel="${r.channel}">
+                <td>${startIndex + idx + 1}</td>
+                <td>${thumb}</td>
+                <td class="table-title toggle-channel" title="클릭하여 영상 목록 열기/닫기">${r.channel}</td>
+                <td>${r.videos.length}</td>
+                <td>${fmt(r.totalRiseAbs)}</td>
+                <td style=\"color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}\">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
+                <td><button class="btn btn-details open-details" data-rep="${repId}">자세히</button></td>
+            </tr>
+            <tr class="channel-videos-row ${isOpen ? 'open' : ''}" data-channel="${r.channel}">
+                <td colspan="7">
+                    <div class="channel-videos ${isOpen ? 'expanded' : ''}">${thumbs}</div>
+                </td>
+            </tr>`;
     }).join('');
 
     videoTableBody.innerHTML = html;
@@ -653,14 +660,38 @@ if (toggleStatsChip && statsGrid) {
 
 // 페이지네이션 클릭 핸들러
 document.addEventListener('click', (e) => {
+    // 페이지네이션
     const btn = e.target.closest('.page-btn');
-    if (!btn) return;
-    const p = Number(btn.getAttribute('data-page'));
-    if (!isFinite(p) || p < 1) return;
-    currentPage = p;
-    renderCurrentView();
-    renderPagination();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (btn) {
+        const p = Number(btn.getAttribute('data-page'));
+        if (!isFinite(p) || p < 1) return;
+        currentPage = p;
+        renderCurrentView();
+        renderPagination();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+    }
+    // 채널 드롭다운 토글
+    const toggleCell = e.target.closest('.toggle-channel');
+    if (toggleCell) {
+        const tr = toggleCell.closest('.channel-row');
+        const channel = tr?.getAttribute('data-channel');
+        if (!channel) return;
+        if (expandedChannels.has(channel)) expandedChannels.delete(channel); else expandedChannels.add(channel);
+        renderCurrentView();
+        renderPagination();
+        return;
+    }
+    // 대표 영상 버튼: 알림창으로 간단 정보
+    const openBtn = e.target.closest('.open-details');
+    if (openBtn) {
+        const repId = openBtn.getAttribute('data-rep');
+        if (repId) {
+            alert('대표 영상 상세로 이동합니다.');
+            window.open(`details.html?id=${encodeURIComponent(repId)}`, '_blank');
+        }
+        return;
+    }
 });
 
 // 구독자 필터 이벤트 바인딩
