@@ -1,11 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, getDocs, query, orderBy, limit, startAfter, where, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-import { firebaseConfig } from './firebase-config.js';
-
-// Firebase 초기화
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+import { supabase } from '../supabase-client.js';
 
 // 컨테이너 및 입력 요소
 const videoTableContainer = document.getElementById('video-table-container');
@@ -206,41 +199,21 @@ async function setCached(data) {
 async function fetchVideos() {
     try {
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
-        // 0) CDN 정적 JSON 우선 시도
+        // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로)
         try {
-            const res = await fetch('/public/videos.json', { cache: 'no-cache' });
+            const res = await fetch('/data/videos.json', { cache: 'no-cache' });
             if (res.ok) {
                 allVideos = await res.json();
                 await setCached(allVideos);
                 filterAndRender();
-                // 정적 JSON 이후에도 추가 로딩 가능하도록 커서 설정
-                try {
-                    const sorted = allVideos.slice().filter(v => v.date).sort((a,b)=> (new Date(b.date||0)) - (new Date(a.date||0)));
-                    const last = sorted[sorted.length - 1];
-                    dateCursor = last?.date || null;
-                    hasMore = true; // Firestore에서 추가 페이지 로드 허용
-                    updateLoadMoreVisibility();
-                } catch {}
+                // 정적 JSON 이후에도 추가 로딩 가능하도록 플래그 설정(옵션)
+                hasMore = true;
+                updateLoadMoreVisibility();
                 return;
             }
         } catch {}
 
-        // 0-1) Firestore system/settings에서 정적 JSON URL 조회
-        try {
-            const sDoc = await getDoc(doc(db, 'system', 'settings'));
-            if (sDoc.exists()) {
-                const url = sDoc.data()?.videosJsonUrl || '';
-                if (url) {
-                    const res2 = await fetch(url, { cache: 'no-cache' });
-                    if (res2.ok) {
-                        allVideos = await res2.json();
-                        await setCached(allVideos);
-                        filterAndRender();
-                        return;
-                    }
-                }
-            }
-        } catch {}
+        // system/settings 폴백은 사용하지 않음
 
         const cached = await getCached();
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -251,11 +224,14 @@ async function fetchVideos() {
             return;
         }
 
-        const q1 = query(collection(db, 'videos'), orderBy('date', 'desc'), limit(itemsPerPage));
-        const snapshot = await getDocs(q1);
-        allVideos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        hasMore = snapshot.docs.length === itemsPerPage;
+        const { data, error } = await supabase
+            .from('videos')
+            .select('*')
+            .order('date', { ascending: false })
+            .range(0, itemsPerPage - 1);
+        if (error) throw error;
+        allVideos = Array.isArray(data) ? data : [];
+        hasMore = allVideos.length === itemsPerPage;
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
@@ -268,19 +244,16 @@ async function fetchVideos() {
 
 async function loadNextPage() {
     if (!hasMore) return;
-    // 정적 JSON만 로드된 상태이면, 첫 페이지의 커서(anchor)만 구한다
-    if (!lastVisible) {
-        const anchorSnap = await getDocs(query(collection(db, 'videos'), orderBy('date', 'desc'), limit(itemsPerPage)));
-        lastVisible = anchorSnap.docs[anchorSnap.docs.length - 1] || null;
-        if (!lastVisible) { hasMore = false; updateLoadMoreVisibility(); return; }
-    }
-    const q2 = query(collection(db, 'videos'), orderBy('date', 'desc'), startAfter(lastVisible), limit(itemsPerPage));
-    const snapshot = await getDocs(q2);
-    const newVideos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const offset = allVideos.length;
+    const { data, error } = await supabase
+        .from('videos')
+        .select('*')
+        .order('date', { ascending: false })
+        .range(offset, offset + itemsPerPage - 1);
+    const newVideos = (!error && Array.isArray(data)) ? data : [];
     if (newVideos.length) {
         allVideos = [...allVideos, ...newVideos];
-        lastVisible = snapshot.docs[snapshot.docs.length - 1] || lastVisible;
-        hasMore = snapshot.docs.length === itemsPerPage;
+        hasMore = newVideos.length === itemsPerPage;
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
@@ -292,10 +265,14 @@ async function loadNextPage() {
 
 async function checkForUpdates(sinceTs) {
     try {
-        const q3 = query(collection(db, 'videos'), where('last_modified', '>', sinceTs || 0), orderBy('last_modified', 'desc'), limit(50));
-        const snapshot = await getDocs(q3);
-        if (!snapshot.size) return;
-        const updates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const { data, error } = await supabase
+            .from('videos')
+            .select('*')
+            .gt('last_modified', sinceTs || 0)
+            .order('last_modified', { ascending: false })
+            .limit(50);
+        if (error || !Array.isArray(data) || data.length === 0) return;
+        const updates = data;
         const map = new Map(allVideos.map(v => [v.id, v]));
         updates.forEach(u => map.set(u.id, u));
         allVideos = Array.from(map.values());
@@ -539,13 +516,27 @@ if (pageSizeSelect) {
 }
 
 // "더 보기" 버튼 또는 무한 스크롤 핸들러
-// 무한 스크롤: 하단 근처에서 자동 로드
+// 무한 스크롤: IntersectionObserver 기반(뷰포트 하단 센티넬)
 let isLoadingNext = false;
-window.addEventListener('scroll', async () => {
-    if (isLoadingNext) return;
-    const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 200;
-    if (nearBottom && hasMore) {
-        isLoadingNext = true;
-        try { await loadNextPage(); } finally { isLoadingNext = false; }
-    }
-});
+const sentinelEl = document.getElementById('scroll-sentinel');
+if ('IntersectionObserver' in window && sentinelEl) {
+    const io = new IntersectionObserver(async (entries) => {
+        for (const e of entries) {
+            if (e.isIntersecting && hasMore && !isLoadingNext) {
+                isLoadingNext = true;
+                try { await loadNextPage(); } finally { isLoadingNext = false; }
+            }
+        }
+    }, { root: null, rootMargin: '200px 0px 200px 0px', threshold: 0 });
+    io.observe(sentinelEl);
+} else {
+    // 폴백: 스크롤 근접 감지
+    window.addEventListener('scroll', async () => {
+        if (isLoadingNext) return;
+        const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 200;
+        if (nearBottom && hasMore) {
+            isLoadingNext = true;
+            try { await loadNextPage(); } finally { isLoadingNext = false; }
+        }
+    });
+}
