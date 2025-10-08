@@ -10,12 +10,10 @@ export default defineConfig({
     outDir: 'dist', // 빌드 결과물이 저장될 폴더
     rollupOptions: {
       input: {
-        dashboard: resolve(__dirname, 'dashboard.html'),
         main: resolve(__dirname, 'index.html'),
         admin: resolve(__dirname, 'admin.html'),
         details: resolve(__dirname, 'details.html'), // 'details.html' 추가
         my: resolve(__dirname, 'my.html'),
-        channel: resolve(__dirname, 'channel.html'),
       },
     },
   },
