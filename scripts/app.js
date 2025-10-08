@@ -21,13 +21,13 @@ const statChannelsSub = document.getElementById('stat-channels-sub');
 const statVideosSub = document.getElementById('stat-videos-sub');
 const toggleStatsChip = document.getElementById('toggle-stats-chip');
 const statsGrid = document.getElementById('stats-grid');
-const pageSizeSelect = document.getElementById('page-size-select');
+// 페이지 크기 UI 제거. 내부 배치 크기만 사용
+const PAGE_BATCH = 100;
 
 // 상태
 let allVideos = [];
 let filteredVideos = [];
-let currentPage = 1;
-let itemsPerPage = 100;
+// 페이지 개념 없이 연속 표시. 요청 배치는 PAGE_BATCH로 처리
 let viewMode = 'video'; // 'channel'
 let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
 
@@ -227,10 +227,10 @@ async function fetchVideos() {
             .from('videos')
             .select('*')
             .order('date', { ascending: false })
-            .range(0, itemsPerPage - 1);
+            .range(0, PAGE_BATCH - 1);
         if (error) throw error;
         allVideos = Array.isArray(data) ? data : [];
-        hasMore = allVideos.length === itemsPerPage;
+        hasMore = allVideos.length === PAGE_BATCH;
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
@@ -248,26 +248,17 @@ async function loadNextPage() {
         .from('videos')
         .select('*')
         .order('date', { ascending: false })
-        .range(offset, offset + itemsPerPage - 1);
+        .range(offset, offset + PAGE_BATCH - 1);
     const newVideos = (!error && Array.isArray(data)) ? data : [];
     if (newVideos.length) {
         allVideos = [...allVideos, ...newVideos];
-        // 더 가져온 경우, 계속 더 시도할 수 있도록 hasMore 유지
-        hasMore = newVideos.length === itemsPerPage;
+        hasMore = newVideos.length === PAGE_BATCH;
         await setCached(allVideos);
-        currentPage += 1; // 다음 페이지 노출
         filterAndRender(true);
         updateLoadMoreVisibility();
     } else {
         // 원격에서 더 이상 없지만, 로컬(allVideos/filteredVideos)에 아직 미노출 데이터가 있으면 페이지 증가로 표시
-        const totalAvailable = Array.isArray(filteredVideos) && filteredVideos.length ? filteredVideos.length : allVideos.length;
-        if (totalAvailable > currentPage * itemsPerPage) {
-            currentPage += 1;
-            filterAndRender(true);
-            hasMore = true; // 아직 표시할 로컬 데이터가 남아있음
-        } else {
-            hasMore = false;
-        }
+        hasMore = false;
         updateLoadMoreVisibility();
     }
 }
@@ -348,16 +339,12 @@ function renderVideoView() {
                 return dateB - dateA;
     });
 
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const pageRows = rows.slice(startIndex, endIndex);
-
-    if (!pageRows.length) {
+    if (!rows.length) {
         videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
         return;
     }
 
-    const html = pageRows.map((r, idx) => {
+    const html = rows.map((r, idx) => {
         const curr = parseCount(r.views_numeric || r.views || 0);
         const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
         const pct = prev ? ((curr - prev) / prev) * 100 : 0;
@@ -366,7 +353,7 @@ function renderVideoView() {
         const lastChecked = r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-';
         return `
         <tr>
-            <td>${startIndex + idx + 1}</td>
+            <td>${idx + 1}</td>
             <td>${thumbnail}</td>
             <td class="table-title"><a href="details.html?id=${r.id}" target="_blank">${r.title || ''}</a></td>
             <td>${r.channel || ''}</td>
@@ -420,23 +407,19 @@ function renderChannelView() {
         return (b.totalRiseAbs - a.totalRiseAbs) || (b.avgRisePct - a.avgRisePct);
     });
 
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const pageRows = rows.slice(startIndex, endIndex);
-
-    if (!pageRows.length) {
+    if (!rows.length) {
         videoTableBody.innerHTML = '<tr><td colspan="7" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
         return;
     }
 
-    const html = pageRows.map((r, idx) => {
+    const html = rows.map((r, idx) => {
         const thumb = r.representative?.thumbnail ? `<img src="${r.representative.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         // 대표 영상이 있다면 상세 페이지로 이동하도록 연결
         const repId = r.representative?.id || '';
         const link = repId ? `details.html?id=${encodeURIComponent(repId)}` : '#';
         return `
             <tr>
-            <td>${startIndex + idx + 1}</td>
+            <td>${idx + 1}</td>
             <td>${thumb}</td>
             <td class="table-title">${r.channel}</td>
             <td>${r.videos.length}</td>
@@ -449,13 +432,7 @@ function renderChannelView() {
     videoTableBody.innerHTML = html;
 }
 
-function getTotalPages() {
-    if (viewMode === 'channel') {
-        const rows = groupByChannel(filteredVideos);
-        return Math.max(1, Math.ceil(rows.length / itemsPerPage));
-    }
-    return Math.max(1, Math.ceil(filteredVideos.length / itemsPerPage));
-}
+function getTotalPages() { return 1; }
 
 function renderPagination() {
     // 무한 스크롤로 대체: 페이지네이션 UI 제거
@@ -514,15 +491,7 @@ if (toggleStatsChip && statsGrid) {
 }
 
 // 페이지당 개수 변경
-if (pageSizeSelect) {
-    pageSizeSelect.addEventListener('change', () => {
-        const v = Number(pageSizeSelect.value || 100);
-        itemsPerPage = isFinite(v) && v > 0 ? v : 100;
-        currentPage = 1;
-        renderCurrentView();
-        renderPagination();
-    });
-}
+// 페이지 크기 UI 제거됨
 
 // "더 보기" 버튼 또는 무한 스크롤 핸들러
 // 무한 스크롤: IntersectionObserver 기반(뷰포트 하단 센티넬)
