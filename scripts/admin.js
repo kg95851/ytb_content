@@ -66,6 +66,8 @@ let docIdToEdit = null;
 let isBulkDelete = false;
 
 // ---------- Auth (Supabase) ----------
+const loginDebug = document.getElementById('login-debug');
+
 async function refreshAuthUI() {
   const { data: { session } } = await supabase.auth.getSession();
   if (session) {
@@ -85,10 +87,18 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const password = document.getElementById('password').value;
   geminiKeyStatus && (geminiKeyStatus.textContent = '');
   try {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (loginDebug) { loginDebug.style.display='block'; loginDebug.textContent = '';
+      loginDebug.textContent += `[client] URL: ${import.meta.env?.VITE_SUPABASE_URL ? 'OK' : 'MISSING'}\n`;
+      loginDebug.textContent += `[client] ANON: ${import.meta.env?.VITE_SUPABASE_ANON_KEY ? 'OK' : 'MISSING'}\n`;
+      try { const probe = await supabase.auth.getSession(); loginDebug.textContent += `[probe] session: ${probe?.data?.session ? 'present' : 'none'}\n`; } catch {}
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (loginDebug) loginDebug.textContent += `[signin] user: ${data?.user?.id || 'none'}\n`;
   } catch (err) {
-    document.getElementById('login-error').textContent = '로그인 실패: ' + (err?.message || err);
+    const msg = (err?.message || err || '').toString();
+    document.getElementById('login-error').textContent = '로그인 실패: ' + msg;
+    if (loginDebug) loginDebug.textContent += `[error] ${msg}\n`;
   }
   await refreshAuthUI();
 });
