@@ -255,10 +255,19 @@ async function loadNextPage() {
         // 더 가져온 경우, 계속 더 시도할 수 있도록 hasMore 유지
         hasMore = newVideos.length === itemsPerPage;
         await setCached(allVideos);
+        currentPage += 1; // 다음 페이지 노출
         filterAndRender(true);
         updateLoadMoreVisibility();
     } else {
-        hasMore = false;
+        // 원격에서 더 이상 없지만, 로컬(allVideos/filteredVideos)에 아직 미노출 데이터가 있으면 페이지 증가로 표시
+        const totalAvailable = Array.isArray(filteredVideos) && filteredVideos.length ? filteredVideos.length : allVideos.length;
+        if (totalAvailable > currentPage * itemsPerPage) {
+            currentPage += 1;
+            filterAndRender(true);
+            hasMore = true; // 아직 표시할 로컬 데이터가 남아있음
+        } else {
+            hasMore = false;
+        }
         updateLoadMoreVisibility();
     }
 }
