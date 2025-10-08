@@ -199,14 +199,13 @@ async function setCached(data) {
 async function fetchVideos() {
     try {
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
-        // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로)
+        // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로). 로컬 렌더 후에도 계속 page 로드 가능하게 hasMore 유지
         try {
             const res = await fetch('/data/videos.json', { cache: 'no-cache' });
             if (res.ok) {
                 allVideos = await res.json();
                 await setCached(allVideos);
                 filterAndRender();
-                // 정적 JSON 이후에도 추가 로딩 가능하도록 플래그 설정(옵션)
                 hasMore = true;
                 updateLoadMoreVisibility();
                 return;
@@ -253,9 +252,10 @@ async function loadNextPage() {
     const newVideos = (!error && Array.isArray(data)) ? data : [];
     if (newVideos.length) {
         allVideos = [...allVideos, ...newVideos];
+        // 더 가져온 경우, 계속 더 시도할 수 있도록 hasMore 유지
         hasMore = newVideos.length === itemsPerPage;
         await setCached(allVideos);
-        filterAndRender();
+        filterAndRender(true);
         updateLoadMoreVisibility();
     } else {
         hasMore = false;
@@ -287,7 +287,7 @@ function updateLoadMoreVisibility() {
 }
 
 // --------- 필터링 ---------
-function filterAndRender() {
+function filterAndRender(keepPage = false) {
     filteredVideos = [...allVideos];
     const searchTerm = (searchInput?.value || '').toLowerCase();
     if (searchTerm) {
@@ -308,7 +308,7 @@ function filterAndRender() {
     if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
     if (endDate) filteredVideos = filteredVideos.filter(v => v.date && v.date <= endDate);
 
-    currentPage = 1;
+    if (!keepPage) currentPage = 1;
     updateStats(filteredVideos);
     renderCurrentView();
 }
