@@ -154,7 +154,7 @@ function ensureTableSkeleton(mode) {
             <thead>
                 <tr>
                     <th>#</th><th>대표 썸네일</th><th>채널</th><th>영상 수</th>
-                    <th>총 상승 조회수</th><th>평균 증가율</th><th>대표 영상</th>
+                    <th>총 상승 조회수</th><th>평균 증가율</th><th>영상들</th>
                 </tr>
             </thead>
             <tbody id="video-table-body"></tbody>
@@ -540,6 +540,18 @@ function renderChannelView() {
         // 대표 영상이 있다면 상세 페이지로 이동하도록 연결
         const repId = r.representative?.id || '';
         const link = repId ? `details.html?id=${encodeURIComponent(repId)}` : '#';
+        // 모든 영상 썸네일 목록 (최신순)
+        const videosSorted = r.videos.slice().sort((a,b) => {
+            const da = a.date ? new Date(a.date).getTime() : 0;
+            const db = b.date ? new Date(b.date).getTime() : 0;
+            return db - da;
+        });
+        const thumbs = videosSorted.map(v => {
+            const t = v.thumbnail ? `<img src="${v.thumbnail}" class="thumb-mini" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumb-mini\\'>-</div>\'">` : `<div class="no-thumb-mini">-</div>`;
+            const vid = v.id ? `details.html?id=${encodeURIComponent(v.id)}` : '#';
+            const title = (v.title || '').replace(/"/g, '');
+            return `<a class="thumb-link" href="${vid}" target="_blank" title="${title}">${t}</a>`;
+        }).join('');
         return `
             <tr>
             <td>${startIndex + idx + 1}</td>
@@ -547,8 +559,8 @@ function renderChannelView() {
             <td class="table-title">${r.channel}</td>
             <td>${r.videos.length}</td>
             <td>${fmt(r.totalRiseAbs)}</td>
-            <td style="color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
-            <td><a class="btn btn-details" href="${link}" target="_blank">자세히</a></td>
+            <td style=\"color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}\">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
+            <td><div class=\"thumb-list\">${thumbs}</div></td>
         </tr>`;
     }).join('');
 
