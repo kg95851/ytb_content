@@ -1,11 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-import { firebaseConfig } from './firebase-config.js';
-
-// Firebase 초기화
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+import { supabase } from '../supabase-client.js';
 
 const detailsContent = document.getElementById('details-content');
 const dopamineGraphContainer = document.getElementById('dopamine-graph');
@@ -27,15 +20,17 @@ const fetchAndDisplayDetails = async () => {
     }
 
     try {
-        const docRef = doc(db, 'videos', videoId);
-        const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-            const video = docSnap.data();
-            renderDetails(video);
-        } else {
+        const { data, error } = await supabase
+          .from('videos')
+          .select('*')
+          .eq('id', videoId)
+          .single();
+        if (error) throw error;
+        if (!data) {
             detailsContent.innerHTML = '<p class="error-message">해당 비디오를 찾을 수 없습니다.</p>';
+            return;
         }
+        renderDetails(data);
     } catch (error) {
         console.error("Error fetching video details: ", error);
         detailsContent.innerHTML = '<p class="error-message">데이터를 불러오는 데 실패했습니다.</p>';
