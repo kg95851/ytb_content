@@ -199,8 +199,6 @@ async function setCached(data) {
 async function fetchVideos() {
     let loadedOk = false;
     try {
-        // 글로벌 스피너 on
-        try { document.getElementById('global-spinner')?.classList.remove('hidden'); } catch {}
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
         // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로). 로컬 렌더 후에도 계속 page 로드 가능하게 hasMore 유지
         try {
@@ -230,12 +228,13 @@ async function fetchVideos() {
 
         const { data, error } = await supabase
             .from('videos')
-            .select('*')
+            .select('*', { count: 'exact' })
             .order('date', { ascending: false })
             .range(0, PAGE_BATCH - 1);
         if (error) throw error;
+        // 중복 로딩 방지: 처음 로드 시 반드시 초기화
         allVideos = Array.isArray(data) ? data : [];
-        hasMore = allVideos.length === PAGE_BATCH;
+        hasMore = (data?.length || 0) === PAGE_BATCH;
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
@@ -244,12 +243,7 @@ async function fetchVideos() {
         console.error('Error fetching videos: ', error);
         // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
     }
-    finally {
-        // 글로벌 스피너 off
-        if (loadedOk) {
-            try { document.getElementById('global-spinner')?.classList.add('hidden'); } catch {}
-        }
-    }
+    finally {}
 }
 
 async function loadNextPage() {
@@ -262,7 +256,10 @@ async function loadNextPage() {
         .range(offset, offset + PAGE_BATCH - 1);
     const newVideos = (!error && Array.isArray(data)) ? data : [];
     if (newVideos.length) {
-        allVideos = [...allVideos, ...newVideos];
+        // 중복 합치기 방지: id 기준으로 병합
+        const map = new Map(allVideos.map(v => [v.id, v]));
+        newVideos.forEach(v => map.set(v.id, v));
+        allVideos = Array.from(map.values());
         hasMore = newVideos.length === PAGE_BATCH;
         await setCached(allVideos);
         filterAndRender(true);
