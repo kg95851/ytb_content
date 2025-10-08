@@ -144,6 +144,12 @@ a:hover { color: #87ceeb; }
 .thumb-mini { width: 80px; height: 45px; object-fit: cover; display:block; }
 .no-thumb-mini { width: 80px; height: 45px; background:#1f2937; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; font-size:12px; }
 
+/* 채널 드롭박스 행 */
+.channel-videos-row { display:none; background: #0e162a; }
+.channel-videos-row.open { display: table-row; }
+.channel-videos { padding: 10px 8px; border-top: 1px solid var(--border-color); }
+.toggle-channel { cursor: pointer; }
+
 /* 썸네일 없을 때 플레이스홀더 */
 .no-thumbnail-placeholder {
     width: 100px;
