@@ -9,6 +9,12 @@ const formTypeFilter = document.getElementById('form-type-filter');
 const startDateFilter = document.getElementById('start-date-filter');
 const endDateFilter = document.getElementById('end-date-filter');
 const sortFilter = document.getElementById('sort-filter');
+// 구독자 필터 UI 요소
+const subsChips = document.querySelectorAll('.chip-subs');
+const subsMinInput = document.getElementById('subs-min');
+const subsMaxInput = document.getElementById('subs-max');
+const subsApplyBtn = document.getElementById('subs-apply');
+const subsResetBtn = document.getElementById('subs-reset');
 
 // 칩 & 통계 요소
 const viewChips = document.querySelectorAll('.view-chip-group .chip');
@@ -34,6 +40,7 @@ let filteredVideos = [];
 let viewMode = 'video'; // 'channel'
 let currentPage = 1;     // 1-based 페이지 인덱스
 let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
+let subsFilter = { preset: 'all', min: null, max: null };
 
 // 페이지네이션 쿼리 상태
 let lastVisible = null;
@@ -384,6 +391,27 @@ function filterAndRender(keepPage = false) {
     if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
     if (endDate) filteredVideos = filteredVideos.filter(v => v.date && v.date <= endDate);
 
+    // 구독자 필터 적용
+    if (subsFilter) {
+        let min = subsFilter.min != null ? subsFilter.min : null;
+        let max = subsFilter.max != null ? subsFilter.max : null;
+        switch (subsFilter.preset) {
+            case 'lt1k': min = 0; max = 1000; break;
+            case '1k-10k': min = 1000; max = 10000; break;
+            case '10k-100k': min = 10000; max = 100000; break;
+            case '100k-1m': min = 100000; max = 1000000; break;
+            case '>=1m': min = 1000000; max = null; break;
+        }
+        if (min != null || max != null) {
+            filteredVideos = filteredVideos.filter(v => {
+                const subs = parseCount(v.subscribers_numeric || v.subscribers || 0);
+                if (min != null && subs < min) return false;
+                if (max != null && subs > max) return false;
+                return true;
+            });
+        }
+    }
+
     if (!keepPage) currentPage = 1;
     updateStats(filteredVideos);
     renderCurrentView();
@@ -409,10 +437,20 @@ function renderVideoView() {
     rows.sort((a,b) => {
         if (sortMode === 'pct_desc') return (b._pct - a._pct) || (b._riseAbs - a._riseAbs);
         if (sortMode === 'abs_desc') return (b._riseAbs - a._riseAbs) || (b._pct - a._pct);
+        if (sortMode === 'views_desc' || sortMode === 'views_asc') {
+            const av = parseCount(a.views_numeric || a.views || 0);
+            const bv = parseCount(b.views_numeric || b.views || 0);
+            return sortMode === 'views_desc' ? (bv - av) : (av - bv);
+        }
+        if (sortMode === 'subs_desc' || sortMode === 'subs_asc') {
+            const as = parseCount(a.subscribers_numeric || a.subscribers || 0);
+            const bs = parseCount(b.subscribers_numeric || b.subscribers || 0);
+            return sortMode === 'subs_desc' ? (bs - as) : (as - bs);
+        }
         // date_desc 또는 기타
         const dateA = a.date ? new Date(a.date).getTime() : 0;
         const dateB = b.date ? new Date(b.date).getTime() : 0;
-                return dateB - dateA;
+        return dateB - dateA;
     });
 
     const total = rows.length;
@@ -572,12 +610,18 @@ sortChips.forEach(btn => {
     });
 });
 
-// 세부 정렬 드롭다운은 부가 옵션으로 유지: 변경 시 날짜 기준으로만 반영
+// 세부 정렬 드롭다운: 조회수/구독자 오름·내림차순 반영
 if (sortFilter) {
     sortFilter.addEventListener('change', () => {
-        if (sortMode !== 'date_desc') return; // 날짜 정렬 모드일 때만 반영
-        // date_desc에서 추가 옵션은 기존 filterAndRender가 아니라 간단히 재정렬만
+        const v = sortFilter.value;
+        if (v === 'views_desc') sortMode = 'views_desc';
+        else if (v === 'views_asc') sortMode = 'views_asc';
+        else if (v === 'subs_desc') sortMode = 'subs_desc';
+        else if (v === 'subs_asc') sortMode = 'subs_asc';
+        else sortMode = 'date_desc';
+        currentPage = 1;
         renderCurrentView();
+        renderPagination();
     });
 }
 
@@ -606,3 +650,35 @@ document.addEventListener('click', (e) => {
     renderPagination();
     window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+// 구독자 필터 이벤트 바인딩
+subsChips.forEach(btn => {
+    btn.addEventListener('click', () => {
+        setActiveChip(subsChips, btn);
+        subsFilter.preset = btn.getAttribute('data-subs') || 'all';
+        subsFilter.min = null; subsFilter.max = null;
+        currentPage = 1;
+        filterAndRender(true);
+    });
+});
+if (subsApplyBtn) {
+    subsApplyBtn.addEventListener('click', () => {
+        subsFilter.preset = 'custom';
+        const min = Number(subsMinInput?.value || '');
+        const max = Number(subsMaxInput?.value || '');
+        subsFilter.min = Number.isFinite(min) ? min : null;
+        subsFilter.max = Number.isFinite(max) ? max : null;
+        currentPage = 1;
+        filterAndRender(true);
+    });
+}
+if (subsResetBtn) {
+    subsResetBtn.addEventListener('click', () => {
+        subsFilter = { preset: 'all', min: null, max: null };
+        if (subsMinInput) subsMinInput.value = '';
+        if (subsMaxInput) subsMaxInput.value = '';
+        subsChips.forEach(ch => ch.classList.remove('chip-active'));
+        currentPage = 1;
+        filterAndRender(true);
+    });
+}
