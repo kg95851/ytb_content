@@ -6,8 +6,8 @@
     --danger-hover: #c53030;
     --bg-color: #0b1220;
     --card-bg: #0f172a;
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
+    --text-primary: #cfe9ff; /* 하늘색 주 텍스트 */
+    --text-secondary: #9cc7ff; /* 하늘색 보조 텍스트 */
     --border-color: #1f2a44;
     --font-family-main: 'Inter', 'Noto Sans KR', sans-serif;
     --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -19,6 +19,9 @@
 body { font-family: var(--font-family-main); background-color: var(--bg-color); color: var(--text-primary); line-height: 1.6; }
 .container { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; }
 .hidden { display: none !important; }
+/* 전역 링크 색상 - 기본 텍스트와 동일한 하늘색 계열 */
+a, a:visited { color: var(--text-primary); }
+a:hover { color: #87ceeb; }
 
 /* 전역 로딩 스피너 */
 .spinner-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); backdrop-filter: saturate(120%) blur(2px); z-index: 9999; }
