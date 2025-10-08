@@ -302,9 +302,7 @@ uploadBtn.addEventListener('click', () => {
 
 async function processDataAndUpload(data) {
   uploadStatus.textContent = '변경사항 분석 중...';
-  // 기존 해시 맵 로드
-  const existingHashes = new Map();
-  try { const { data: rows } = await supabase.from('videos').select('id,hash'); (rows||[]).forEach(r => r.hash && existingHashes.set(r.hash, r.id)); } catch {}
+  // 해시 기반 업서트 사용(중복 키: hash)
 
   const toUpsert = [];
   for (const row of data) {
@@ -313,15 +311,14 @@ async function processDataAndUpload(data) {
     const computedHash = String(row.Hash || stableHash(String(url || row.Title || row.title || ''))).trim();
     if (!computedHash) continue;
     toUpsert.push({
-      id: existingHashes.get(computedHash) || computedHash,
       thumbnail: row.Thumbnail || row.thumbnail || '',
       title: row.Title || row.title || '',
       views: row.Views || row.views || '',
-      views_numeric: Number(row.Views_numeric ?? row.views_numeric ?? 0) || 0,
+      views_numeric: toBigIntSafe(row.Views_numeric ?? row.views_numeric),
       channel: row.Channel || row.channel || '',
       date: normalizeDate(row.Date || row.date || ''),
       subscribers: row.Subscribers || row.subscribers || '',
-      subscribers_numeric: Number(row.Subscribers_numeric ?? row.subscribers_numeric ?? 0) || 0,
+      subscribers_numeric: toBigIntSafe(row.Subscribers_numeric ?? row.subscribers_numeric),
       hash: computedHash,
       youtube_url: url,
       group_name: row.group_name || '',
@@ -333,7 +330,7 @@ async function processDataAndUpload(data) {
   const BATCH = 500; let processed = 0;
   for (let i = 0; i < toUpsert.length; i += BATCH) {
     const chunk = toUpsert.slice(i, i + BATCH);
-    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'id' });
+    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'hash' });
     if (error) { uploadStatus.textContent = '업서트 실패: ' + error.message; uploadStatus.style.color='red'; return; }
     processed += chunk.length;
     uploadStatus.textContent = `업서트 처리 중... ${processed}/${toUpsert.length}`;
@@ -616,5 +613,15 @@ function stableHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h =
 function normalizeDate(v) { if (!v) return ''; if (typeof v === 'number') { const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + v * 86400000; try { return new Date(ms).toISOString().slice(0,10); } catch { return String(v); } } const s = String(v).trim().replace(/[./]/g, '-'); if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) { try { return new Date(s).toISOString().slice(0,10); } catch { return s; } } return s; }
 function formatDateTimeLocal(d) { const pad = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+// bigint 컬럼 안전 변환
+function toBigIntSafe(value) {
+  const raw = (value ?? '').toString().trim();
+  if (!raw) return 0;
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (!digits) return 0;
+  // supabase-js는 JS number를 그대로 전송하므로 bigint 컬럼에는 정수 문자열을 사용해도 허용됩니다.
+  try { return BigInt(digits).toString(); } catch { return 0; }
+}
 
 
