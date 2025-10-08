@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, getDocs, getDoc, writeBatch, deleteDoc, updateDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, doc, getDocs, getDoc, writeBatch, deleteDoc, updateDoc, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 import { firebaseConfig } from './firebase-config.js';
@@ -1305,6 +1305,18 @@ uploadBtn.addEventListener('click', () => {
 
 async function processDataAndUpload(data) {
     uploadStatus.textContent = '변경사항 분석 중...';
+
+    // 0) 쓰기 권한/프로젝트 확인용 사전 점검
+    try {
+        const testRef = doc(db, '__smoke__', 'write_test');
+        await setDoc(testRef, { at: Date.now() });
+        await deleteDoc(testRef).catch(()=>{});
+    } catch (e) {
+        uploadStatus.textContent = `쓰기 권한/프로젝트 오류: ${e?.message || e}`;
+        uploadStatus.style.color = 'red';
+        console.error('Preflight write failed', e);
+        return; // 더 진행하지 않음
+    }
 
     // 1) 기존 해시 맵 로드 (한 번의 전체 읽기)
     const existingHashes = new Map(); // hash -> docId
