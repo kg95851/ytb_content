@@ -1325,13 +1325,14 @@ async function processDataAndUpload(data) {
     data.forEach(row => {
         if (!row.Title || !row['YouTube URL']) return;
         const computedHash = String(row.Hash || stableHash(String(row['YouTube URL'] || row.Title))).trim();
+        if (!computedHash) return; // 안전장치
         const videoData = {
             thumbnail: row.Thumbnail || '',
             title: row.Title || '',
             views: row.Views || '',
             views_numeric: Number(row.Views_numeric) || 0,
             channel: row.Channel || '',
-            date: row.Date || '',
+            date: normalizeDate(row.Date),
             subscribers: row.Subscribers || '',
             subscribers_numeric: Number(row.Subscribers_numeric) || 0,
             hash: computedHash,
@@ -1359,9 +1360,17 @@ async function processDataAndUpload(data) {
         chunk.forEach(item => {
             batch.set(doc(db, 'videos', item.id), item.data);
         });
-        await batch.commit();
+        try {
+            await batch.commit();
+        } catch (e) {
+            uploadStatus.textContent = `신규 배치 실패: ${e?.message || e}`;
+            uploadStatus.style.color = 'orange';
+            console.error('Create batch error', e);
+        }
         processed += chunk.length;
         uploadStatus.textContent = `처리 중(신규): ${processed}/${toCreate.length + toUpdate.length}`;
+        // 쓰기 지연으로 레이트 한도 보호
+        await new Promise(r => setTimeout(r, 80));
     }
 
     // 4) 업데이트 배치 (변경 필드만)
@@ -1369,11 +1378,19 @@ async function processDataAndUpload(data) {
         const batch = writeBatch(db);
         const chunk = toUpdate.slice(i, i + BATCH_SIZE);
         chunk.forEach(item => {
-            batch.update(doc(db, 'videos', item.id), item.data);
+            // 문서가 없더라도 생성되도록 merge set 사용
+            batch.set(doc(db, 'videos', item.id), item.data, { merge: true });
         });
-        await batch.commit();
+        try {
+            await batch.commit();
+        } catch (e) {
+            uploadStatus.textContent = `업데이트 배치 실패: ${e?.message || e}`;
+            uploadStatus.style.color = 'orange';
+            console.error('Update batch error', e);
+        }
         processed += chunk.length;
         uploadStatus.textContent = `처리 중(업데이트): ${processed}/${toCreate.length + toUpdate.length}`;
+        await new Promise(r => setTimeout(r, 80));
     }
 
     uploadStatus.textContent = `완료: 신규 ${toCreate.length}, 업데이트 ${toUpdate.length}`;
@@ -1405,4 +1422,21 @@ async function processDataAndUpload(data) {
 function stableHash(str) {
     let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
     return Math.abs(h).toString(36);
+}
+
+function normalizeDate(v) {
+    // 허용 입력: '2024-01-02', '2024/01/02', Excel serial, 공백
+    if (!v) return '';
+    if (typeof v === 'number') {
+        // Excel serial date 기준(1899-12-30)
+        const epoch = new Date(1899, 11, 30).getTime();
+        const ms = epoch + v * 86400000;
+        try { return new Date(ms).toISOString().slice(0, 10); } catch { return String(v); }
+    }
+    const s = String(v).trim().replace(/[./]/g, '-');
+    const m = s.match(/^\d{4}-\d{1,2}-\d{1,2}$/);
+    if (m) {
+        try { return new Date(s).toISOString().slice(0, 10); } catch { return s; }
+    }
+    return s;
 }
