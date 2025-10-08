@@ -55,6 +55,11 @@ a:hover { color: #87ceeb; }
 .chip:hover { background:#f1f5f9; }
 .chip-active { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
 
+/* 구독자 필터 바 */
+.subscriber-bar { margin-bottom: .75rem; }
+.chip-subs { background:#0b1326; color:var(--text-primary); border:1px solid var(--border-color); }
+.chip-subs:hover { background:#0e1a33; }
+
 /* 컴팩트 1줄 툴바 */
 .toolbar-line { display:flex; gap:.4rem; align-items:center; padding:.4rem .5rem; border-radius: var(--radius); background: var(--card-bg); box-shadow: var(--shadow); margin-bottom:1rem; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }
 .toolbar-line > * { white-space: nowrap; }
