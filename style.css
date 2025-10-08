@@ -85,37 +85,7 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 
 
 /* --- 페이지네이션 스타일 (유지) --- */
-.pagination-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-top: 2rem;
-    padding: 1rem;
-}
-
-.pagination-btn {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.pagination-btn:hover:not(:disabled) {
-    background-color: #e2e8f0;
-}
-
-.pagination-btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-.page-info {
-    margin: 0 1rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-}
+.pagination-container { display:none; }
 
 
 /* --- 관리자 & 사용자 공유 테이블 스타일 (수정 및 추가) --- */
