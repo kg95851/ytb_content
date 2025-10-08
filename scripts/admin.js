@@ -1308,7 +1308,9 @@ async function processDataAndUpload(data) {
 
     // 0) 쓰기 권한/프로젝트 확인용 사전 점검
     try {
-        const testRef = doc(db, '__smoke__', 'write_test');
+        // Firestore는 더블 언더스코어(__) 시작 컬렉션 아이디를 예약어로 사용합니다.
+        // 규칙과 무관하게 에러가 발생하므로 시스템 컬렉션으로 변경합니다.
+        const testRef = doc(db, 'system', '_write_test');
         await setDoc(testRef, { at: Date.now() });
         await deleteDoc(testRef).catch(()=>{});
     } catch (e) {
