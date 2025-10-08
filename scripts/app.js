@@ -1,479 +1,728 @@
-/* --- 기본 및 전역 스타일 --- */
-:root {
-    --primary-color: #5a67d8;
-    --primary-hover: #4c51bf;
-    --danger-color: #e53e3e;
-    --danger-hover: #c53030;
-    --bg-color: #0b1220;
-    --card-bg: #0f172a;
-    --text-primary: #cfe9ff; /* 하늘색 주 텍스트 */
-    --text-secondary: #9cc7ff; /* 하늘색 보조 텍스트 */
-    --border-color: #1f2a44;
-    --font-family-main: 'Inter', 'Noto Sans KR', sans-serif;
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --radius: 8px;
+import { supabase } from '../supabase-client.js';
+
+// 컨테이너 및 입력 요소
+const videoTableContainer = document.getElementById('video-table-container');
+let videoTableBody = document.getElementById('video-table-body');
+const paginationContainer = document.getElementById('pagination-container');
+const searchInput = document.getElementById('searchInput');
+const formTypeFilter = document.getElementById('form-type-filter');
+const startDateFilter = document.getElementById('start-date-filter');
+const endDateFilter = document.getElementById('end-date-filter');
+const sortFilter = document.getElementById('sort-filter');
+// 구독자 필터 UI 요소
+const subsChips = document.querySelectorAll('.chip-subs');
+const subsMinInput = document.getElementById('subs-min');
+const subsMaxInput = document.getElementById('subs-max');
+const subsApplyBtn = document.getElementById('subs-apply');
+const subsResetBtn = document.getElementById('subs-reset');
+
+// 칩 & 통계 요소
+const viewChips = document.querySelectorAll('.view-chip-group .chip');
+const sortChips = document.querySelectorAll('.sort-chip-group .chip');
+const statChannels = document.getElementById('stat-channels');
+const statVideos = document.getElementById('stat-videos');
+const statAvgRise = document.getElementById('stat-avg-rise');
+const statUpdated = document.getElementById('stat-updated');
+const statChannelsSub = document.getElementById('stat-channels-sub');
+const statVideosSub = document.getElementById('stat-videos-sub');
+const toggleStatsChip = document.getElementById('toggle-stats-chip');
+const statsGrid = document.getElementById('stats-grid');
+// 페이지 크기 UI 제거. 내부 배치 크기만 사용
+const PAGE_BATCH = 200;              // 페이지 표시 200개
+const DB_FETCH_BATCH = 1000;         // Supabase 요청당 최대 1000 권장
+const DB_CONCURRENCY = 4;            // 병렬 요청 개수
+const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
+
+// 상태
+let allVideos = [];
+let filteredVideos = [];
+// 페이지 개념 없이 연속 표시. 요청 배치는 PAGE_BATCH로 처리
+let viewMode = 'video'; // 'channel'
+let currentPage = 1;     // 1-based 페이지 인덱스
+let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
+let subsFilter = { preset: 'all', min: null, max: null };
+let expandedChannels = new Set();
+
+// 페이지네이션 쿼리 상태
+let lastVisible = null;
+let hasMore = true;
+let dateCursor = null; // static JSON 기반 커서
+
+// 로컬 캐시
+const CACHE_TTL = 60 * 60 * 1000; // 1시간
+const IDB_DB = 'videosCacheDB';
+const IDB_STORE = 'kv';
+const IDB_KEY = 'videosCompressed';
+
+async function idbOpen() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(IDB_DB, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--font-family-main); background-color: var(--bg-color); color: var(--text-primary); line-height: 1.6; }
-.container { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; }
-.hidden { display: none !important; }
-/* 전역 링크 색상 - 기본 텍스트와 동일한 하늘색 계열 */
-a, a:visited { color: var(--text-primary); }
-a:hover { color: #87ceeb; }
-
-/* 전역 로딩 스피너 */
-.spinner-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); backdrop-filter: saturate(120%) blur(2px); z-index: 9999; }
-.spinner-overlay.hidden { display: none !important; }
-.spinner { width: 40px; height: 40px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.25); border-top-color: #60a5fa; animation: spin 1s linear infinite; }
-.spinner-text { margin-top: 12px; color: #e5e7eb; font-weight: 600; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* --- 버튼 스타일 --- */
-.btn { padding: 0.6rem 1.2rem; border: 1px solid transparent; border-radius: var(--radius); font-weight: 600; cursor: pointer; transition: all 0.2s ease-in-out; font-size: 14px; text-decoration: none; display: inline-block; text-align: center; }
-.btn-primary { background-color: var(--primary-color); color: white; }
-.btn-primary:hover { background-color: var(--primary-hover); }
-.btn-danger { background-color: #718096; color: white; } /* 삭제 버튼은 다른 색으로 */
-.btn-danger:hover { background-color: #4a5568; }
-.btn.full-width { width: 100%; }
-/* 자세히 보기 버튼 스타일 추가 */
-.btn-details { background-color: var(--primary-color); color: white; padding: 0.5rem 1rem; font-size: 13px; }
-.btn-details:hover { background-color: var(--primary-hover); }
-
-/* --- 사용자 페이지 (index.html) --- */
-.topbar { display:flex; align-items:center; justify-content: space-between; gap:1rem; margin-bottom: 1rem; }
-.brand { display:flex; align-items:center; gap:.6rem; }
-.brand-badge { display:inline-block; padding:.2rem .5rem; font-size:.7rem; font-weight:700; color:#e2e8f0; background:#1f2937; border:1px solid #334155; border-radius:6px; }
-.brand-title { text-decoration:none; font-weight:800; color:#e2e8f0; font-size:1.1rem; letter-spacing:.02em; }
-.menu { display:flex; align-items:center; gap:.75rem; }
-.menu-link { color:var(--text-secondary); text-decoration:none; font-size:.85rem; padding:.3rem .5rem; border-radius:6px; }
-.menu-link:hover { background:#0b1326; color:var(--text-primary); }
-.filters-toolbar { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
-.view-chip-group, .sort-chip-group { display:flex; gap:.5rem; align-items:center; }
-.chip { border:1px solid var(--border-color); background:#fff; padding:.5rem .8rem; border-radius:9999px; font-size:.875rem; font-weight:600; cursor:pointer; color:var(--text-primary); }
-.chip:hover { background:#f1f5f9; }
-.chip-active { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
-
-/* 구독자 필터 바 */
-.subscriber-bar { margin-bottom: .75rem; }
-.chip-subs { background:#0b1326; color:var(--text-primary); border:1px solid var(--border-color); }
-.chip-subs:hover { background:#0e1a33; }
-
-/* 컴팩트 1줄 툴바 */
-.toolbar-line { display:flex; gap:.4rem; align-items:center; padding:.4rem .5rem; border-radius: var(--radius); background: var(--card-bg); box-shadow: var(--shadow); margin-bottom:1rem; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }
-.toolbar-line > * { white-space: nowrap; }
-.chip-compact { padding:.3rem .6rem; font-size:.75rem; }
-.compact { gap:.35rem; }
-.input-compact { flex:0 0 260px; width:260px; min-width:200px; padding:.4rem .55rem; border:1px solid var(--border-color); border-radius:6px; background:#0b1326; color:var(--text-primary); font-size:.8rem; }
-.select-compact { padding:.3rem .5rem; border:1px solid var(--border-color); border-radius:6px; background:#0b1326; color:var(--text-primary); font-size:.78rem; }
-.date-compact { display:flex; align-items:center; gap:.25rem; }
-.date-sep { color:var(--text-secondary); font-size:.8rem; }
-.toolbar-sep { width:1px; height:22px; background: var(--border-color); margin:0 .25rem; }
-.filter-container { background-color: var(--card-bg); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 2.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
-.filter-container.toolbar-line { display:flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: .4rem; padding: .4rem .5rem; margin-bottom: 1rem; }
-.search-box input { width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius); font-size: 1rem; }
-.filters { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; }
-.filter-group { display: flex; flex-direction: column; gap: 0.5rem; }
-.filter-group label { font-weight: 500; font-size: 0.9rem; color: var(--text-secondary); }
-.filter-group select, .filter-group input[type="date"] { padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius); background-color: #fff; }
-.filter-group.date-range div { display: flex; align-items: center; gap: 0.5rem; }
-
-/* 기존 카드 뷰 스타일(#video-grid, .video-card 등)은 제거됨 */
-
-.info-message, .error-message { text-align: center; padding: 2rem; color: var(--text-secondary); }
-.group-tag { background-color: var(--primary-color); color: white; font-size: 12px; padding: 2px 8px; border-radius: 10px; display: inline-block; }
-
-/* --- 상단 통계 카드 --- */
-.stats-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:1rem; margin-bottom:1rem; }
-.stat-card { background: var(--card-bg); border:1px solid var(--border-color); border-left:4px solid var(--primary-color); border-radius: var(--radius); padding:1rem; box-shadow: var(--shadow); }
-.stat-title { font-size:.85rem; color:var(--text-secondary); margin-bottom:.25rem; }
-.stat-value { font-size:1.6rem; font-weight:700; line-height:1.2; }
-.stat-sub { font-size:.8rem; color:var(--text-secondary); margin-top:.25rem; }
-
-@media (max-width: 1024px) {
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 640px) {
-    .stats-grid { grid-template-columns: 1fr; }
+async function idbGet(key) {
+    try {
+        const db = await idbOpen();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(IDB_STORE, 'readonly');
+            const store = tx.objectStore(IDB_STORE);
+            const r = store.get(key);
+            r.onsuccess = () => resolve(r.result || null);
+            r.onerror = () => reject(r.error);
+        });
+    } catch { return null; }
 }
 
-
-/* --- 페이지네이션 스타일 (유지) --- */
-.pagination-container { display:flex; justify-content:center; gap:6px; margin: 16px 0; }
-.pagination-container .page-btn { padding: 6px 10px; border:1px solid var(--border-color); background:#0b1326; color:var(--text-primary); border-radius:6px; cursor:pointer; font-size:13px; }
-.pagination-container .page-btn.active { background:#1f2937; border-color:#334155; font-weight:700; }
-
-
-/* --- 관리자 & 사용자 공유 테이블 스타일 (수정 및 추가) --- */
-#video-table-container {
-    background-color: var(--card-bg);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    overflow: hidden; /* 테이블 모서리 둥글게 */
+async function idbSet(key, value) {
+    try {
+        const db = await idbOpen();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(IDB_STORE, 'readwrite');
+            const store = tx.objectStore(IDB_STORE);
+            const r = store.put(value, key);
+            r.onsuccess = () => resolve(true);
+            r.onerror = () => reject(r.error);
+        });
+    } catch { return false; }
 }
 
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th, .data-table td { padding: 1rem; border-bottom: 1px solid var(--border-color); text-align: left; vertical-align: middle; }
-
-/* 사용자 페이지 테이블 특정 스타일 */
-.data-table th:first-child, .data-table td:first-child {
-    width: 120px; /* 썸네일 열 너비 */
-    text-align: center;
+async function compressJSON(data) {
+    const text = JSON.stringify(data);
+    if ('CompressionStream' in window) {
+        const cs = new CompressionStream('gzip');
+        const blob = new Blob([text]);
+        const stream = blob.stream().pipeThrough(cs);
+        const buffer = await new Response(stream).arrayBuffer();
+        return { ts: Date.now(), algo: 'gzip', buffer };
+    }
+    return { ts: Date.now(), algo: 'none', text };
 }
 
-.data-table th { background-color: #111827; font-size: 0.9rem; color: var(--text-secondary);
-    /* 헤더 텍스트 스타일 개선 */
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+async function decompressJSON(record) {
+    if (!record) return null;
+    if (record.algo === 'gzip' && 'DecompressionStream' in window) {
+        const ds = new DecompressionStream('gzip');
+        const stream = new Blob([record.buffer]).stream().pipeThrough(ds);
+        const text = await new Response(stream).text();
+        return { ts: record.ts, data: JSON.parse(text) };
+    }
+    if (record.text) return { ts: record.ts, data: JSON.parse(record.text) };
+    return null;
 }
 
-/* 썸네일 스타일 개선 */
-.table-thumbnail { 
-    width: 100px; 
-    height: 56px; /* 16:9 비율 유지 */
-    object-fit: cover; 
-    border-radius: 4px; 
-    display: block;
-    margin: 0 auto;
+// --------- 유틸 ---------
+function parseCount(v) {
+    if (typeof v === 'number') return v;
+    const s = String(v || '');
+    const digits = s.replace(/[^0-9]/g, '');
+    return digits ? Number(digits) : 0;
 }
 
-/* 채널 뷰: 영상 리스트 썸네일 */
-.thumb-list { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-.thumb-link { display:inline-block; border-radius:4px; border:1px solid var(--border-color); overflow:hidden; }
-.thumb-mini { width: 80px; height: 45px; object-fit: cover; display:block; }
-.no-thumb-mini { width: 80px; height: 45px; background:#1f2937; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; font-size:12px; }
-
-/* 채널 드롭박스 행 */
-.channel-videos-row { display:none; background: #0e162a; }
-.channel-videos-row.open { display: table-row; }
-.channel-videos { padding: 10px 8px; border-top: 1px solid var(--border-color); }
-.toggle-channel { cursor: pointer; }
-
-/* 썸네일 없을 때 플레이스홀더 */
-.no-thumbnail-placeholder {
-    width: 100px;
-    height: 56px;
-    background-color: #f0f0f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-secondary);
-    font-size: 0.8rem;
-    border-radius: 4px;
-    margin: 0 auto;
+function computeChangePct(doc) {
+    const curr = parseCount(doc.views_numeric || doc.views || 0);
+    const prev = parseCount(doc.views_prev_numeric || doc.views_baseline_numeric || doc.views || 0) || curr;
+    if (!prev) return 0;
+    return ((curr - prev) / prev) * 100;
 }
 
-.table-title { font-weight: 500; }
-/* 테이블 행 호버 효과 추가 */
-.data-table tbody tr:hover {
-    background-color: #101827;
+function getRiseAbs(doc) {
+    const curr = parseCount(doc.views_numeric || doc.views || 0) || 0;
+    const prev = parseCount(doc.views_prev_numeric || doc.views_baseline_numeric || doc.views || 0) || curr;
+    return Math.max(0, curr - prev);
 }
 
-
-/* --- 상세 페이지 (details.html) 스타일 (신규) --- */
-.details-page-header {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 2rem;
+function fmt(n) {
+    try { return Number(n || 0).toLocaleString(); } catch { return String(n); }
 }
 
-.details-container {
-    background-color: var(--card-bg);
-    padding: 2rem;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 3rem;
+function setActiveChip(groupNodeList, target) {
+    groupNodeList.forEach(btn => btn.classList.remove('chip-active'));
+    if (target) target.classList.add('chip-active');
 }
 
-.video-player-container {
-    position: relative;
-    padding-bottom: 56.25%; /* 16:9 비율 */
-    height: 0;
-    overflow: hidden;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
-    background-color: #000; /* 플레이어 배경색 */
+function ensureTableSkeleton(mode) {
+    // mode: 'video' | 'channel'
+    if (!videoTableContainer) return;
+    if (mode === 'channel') {
+        videoTableContainer.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th><th>대표 썸네일</th><th>채널</th><th>영상 수</th>
+                    <th>현재 조회수 합</th><th>평균 증가율</th><th>영상들</th>
+                </tr>
+            </thead>
+            <tbody id="video-table-body"></tbody>
+        </table>`;
+    } else {
+        videoTableContainer.innerHTML = `
+        <table class="data-table" aria-describedby="stat-updated">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>썸네일</th>
+                    <th>제목</th>
+                    <th>채널</th>
+                    <th>현재 조회수</th>
+                    <th>기준</th>
+                    <th>증가수</th>
+                    <th>증가율</th>
+                    <th>업데이트</th>
+                    <th>링크</th>
+                </tr>
+            </thead>
+            <tbody id="video-table-body"></tbody>
+        </table>`;
+    }
+    videoTableBody = document.getElementById('video-table-body');
 }
 
-.video-player-container iframe,
-.video-player-container img,
-.video-player-container .no-thumbnail-placeholder {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+function updateStats(rows) {
+    try {
+        const channels = new Set(rows.map(v => (v.channel || '').trim()).filter(Boolean));
+        const avg = rows.length ? rows.map(computeChangePct).reduce((a,b)=>a+b,0) / rows.length : 0;
+        const maxTs = Math.max(...rows.map(r => Number(r.views_last_checked_at || 0)).filter(Boolean), 0);
+        if (statChannels) statChannels.textContent = fmt(channels.size);
+        if (statVideos) statVideos.textContent = fmt(rows.length);
+        if (statAvgRise) statAvgRise.textContent = `${avg>=0?'+':''}${avg.toFixed(2)}%`;
+        if (statUpdated) statUpdated.textContent = maxTs ? new Date(maxTs).toLocaleString() : '-';
+        if (statChannelsSub) statChannelsSub.textContent = '고유 채널 수';
+        if (statVideosSub) statVideosSub.textContent = '필터 적용됨';
+    } catch {}
 }
 
-.details-info h1 {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
+// --------- 데이터 로드 ---------
+async function getCached() {
+    const rec = await idbGet(IDB_KEY);
+    const out = await decompressJSON(rec);
+    return out ? { timestamp: out.ts, data: out.data } : null;
+}
+async function setCached(data) {
+    const rec = await compressJSON(data);
+    await idbSet(IDB_KEY, rec);
 }
 
-.details-meta-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.5rem;
-    margin-bottom: 2.5rem;
-    padding: 1rem;
-    background-color: #f9fafb;
-    border-radius: var(--radius);
+async function fetchVideos() {
+    let loadedOk = false;
+    try {
+        if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
+        // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로). 로컬 렌더 후에도 계속 page 로드 가능하게 hasMore 유지
+        try {
+            const res = await fetch('/data/videos.json', { cache: 'no-cache' });
+            if (res.ok) {
+                allVideos = await res.json();
+                await setCached(allVideos);
+                filterAndRender();
+                hasMore = true;
+                updateLoadMoreVisibility();
+                loadedOk = true;
+                return;
+            }
+        } catch {}
+
+        // system/settings 폴백은 사용하지 않음
+
+        const cached = await getCached();
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            allVideos = cached.data || [];
+            filterAndRender();
+            // 백그라운드 업데이트 확인
+            checkForUpdates(cached.timestamp).catch(()=>{});
+            loadedOk = true;
+            return;
+        }
+
+        if (FETCH_ALL_FROM_DB) {
+            allVideos = await fetchAllFromSupabase();
+            hasMore = false;
+        } else {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*', { count: 'exact' })
+                .order('date', { ascending: false })
+                .range(0, PAGE_BATCH - 1);
+            if (error) throw error;
+            allVideos = Array.isArray(data) ? data : [];
+            hasMore = (data?.length || 0) === PAGE_BATCH;
+        }
+        await setCached(allVideos);
+        filterAndRender();
+        updateLoadMoreVisibility();
+        loadedOk = true;
+    } catch (error) {
+        console.error('Error fetching videos: ', error);
+        // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
+    }
+    finally {}
 }
 
-.details-meta-bar .meta-item strong {
-    color: var(--text-secondary);
-    margin-right: 0.5rem;
+// Supabase에서 전량(14k) 로드: 1000개 단위 병렬 페이징
+async function fetchAllFromSupabase() {
+    // 1) 총 개수 조회(헤더만)
+    let total = 0;
+    try {
+        const { count, error: cntErr } = await supabase
+            .from('videos')
+            .select('id', { count: 'exact', head: true });
+        if (!cntErr && typeof count === 'number') total = count;
+    } catch {}
+
+    const out = [];
+    // 2) 총 개수가 없으면 페이지를 모를 때 until-exhaust 방식으로 0..,1000.. 반복
+    if (!total || total <= 0) {
+        let offset = 0;
+        while (true) {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*')
+                .order('date', { ascending: false })
+                .range(offset, offset + DB_FETCH_BATCH - 1);
+            if (error) break;
+            const batch = Array.isArray(data) ? data : [];
+            if (!batch.length) break;
+            out.push(...batch);
+            if (batch.length < DB_FETCH_BATCH) break;
+            offset += DB_FETCH_BATCH;
+        }
+        return dedupeById(out);
+    }
+
+    // 3) 총 개수 기반으로 병렬 페치
+    const ranges = [];
+    for (let start = 0; start < total; start += DB_FETCH_BATCH) {
+        ranges.push([start, Math.min(start + DB_FETCH_BATCH - 1, total - 1)]);
+    }
+    // 병렬 제한
+    const results = [];
+    for (let i = 0; i < ranges.length; i += DB_CONCURRENCY) {
+        const slice = ranges.slice(i, i + DB_CONCURRENCY);
+        const chunk = await Promise.all(slice.map(async ([from, to]) => {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*')
+                .order('date', { ascending: false })
+                .range(from, to);
+            if (error) return [];
+            return Array.isArray(data) ? data : [];
+        }));
+        chunk.forEach(arr => results.push(...arr));
+    }
+    return dedupeById(results);
 }
 
-.details-info h2 {
-    font-size: 1.5rem;
-    margin-bottom: 1.5rem;
-    border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 0.5rem;
+function dedupeById(rows) {
+    const map = new Map();
+    for (const r of rows) { if (r && r.id) map.set(r.id, r); }
+    return Array.from(map.values());
 }
 
-/* 도파민 그래프 영역 */
-#dopamine-graph-section h2 { margin-bottom: 0.75rem; }
-.dopamine-legend { display:flex; gap:8px; align-items:center; margin: 0.5rem 0 1rem; font-size: 12px; color: var(--text-secondary); }
-.dopamine-legend span { display:inline-flex; align-items:center; gap:6px; }
-.dopamine-dot { width: 10px; height: 10px; border-radius: 50%; display:inline-block; }
-.dot-low { background:#94a3b8; }
-.dot-mid { background:#f59e0b; }
-.dot-high { background:#ef4444; }
-
-.details-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1.5rem;
-}
-
-.detail-item {
-    background-color: #f9fafb;
-    padding: 1rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border-color);
-}
-.detail-item.analysis-full {
-    grid-column: 1 / -1; /* 전체 너비 차지 */
-}
-.analysis-raw-box {
-    max-height: 280px;
-    overflow: auto;
-    white-space: pre; /* 가로 스크롤 허용 */
-    background: #fff;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 12px;
-}
-
-/* 분석 카드 레이아웃 */
-.analysis-cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
-    margin-top: .5rem;
-}
-.analysis-card {
-    background: #fff;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.analysis-card-header {
-    background: #f9fafb;
-    padding: .75rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid var(--border-color);
-}
-.analysis-card-body {
-    padding: .75rem 1rem;
-}
-.analysis-pre {
-    white-space: pre-wrap;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 12px;
-}
-
-/* 키워드 카드 */
-.keyword-cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
-    margin-top: .5rem;
-}
-.keyword-card {
-    background: #fff;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.keyword-card-header {
-    background: #f9fafb;
-    padding: .75rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid var(--border-color);
-}
-.keyword-card-body {
-    padding: .75rem 1rem;
-}
-.keyword-chip {
-    display: inline-block;
-    margin: 4px 6px 0 0;
-    padding: 4px 8px;
-    font-size: 12px;
-    background: #eef2ff;
-    color: #3730a3;
-    border: 1px solid #c7d2fe;
-    border-radius: 9999px;
-}
-.keyword-chip.empty {
-    background: #f3f4f6;
-    color: #6b7280;
-    border-color: #e5e7eb;
-}
-
-/* 키워드 컨텍스트 메뉴 */
-.keyword-menu {
-    position: absolute;
-    z-index: 1000;
-    background: #fff;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow-lg);
-    border-radius: 8px;
-    min-width: 220px;
-    overflow: hidden;
-}
-.keyword-menu-title {
-    font-weight: 600;
-    padding: .6rem .75rem;
-    background: #f9fafb;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 13px;
-}
-.platform-link {
-    display: block;
-    padding: .6rem .75rem;
-    color: var(--text-primary);
-    text-decoration: none;
-    font-size: 14px;
-}
-.platform-link:hover {
-    background: #f3f4f6;
-}
-
-.detail-label {
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-    display: block;
-}
-
-.detail-value {
-    color: var(--text-primary);
-}
-
-/* 반응형 디자인 (상세 페이지) */
-@media (max-width: 1024px) {
-    .details-container {
-        grid-template-columns: 1fr;
-        gap: 2rem;
+async function loadNextPage() {
+    if (!hasMore) return;
+    const offset = allVideos.length;
+    const { data, error } = await supabase
+        .from('videos')
+        .select('*')
+        .order('date', { ascending: false })
+        .range(offset, offset + PAGE_BATCH - 1);
+    const newVideos = (!error && Array.isArray(data)) ? data : [];
+    if (newVideos.length) {
+        // 중복 합치기 방지: id 기준으로 병합
+        const map = new Map(allVideos.map(v => [v.id, v]));
+        newVideos.forEach(v => map.set(v.id, v));
+        allVideos = Array.from(map.values());
+        hasMore = newVideos.length === PAGE_BATCH;
+        await setCached(allVideos);
+        filterAndRender(true);
+        updateLoadMoreVisibility();
+    } else {
+        // 원격에서 더 이상 없지만, 로컬(allVideos/filteredVideos)에 아직 미노출 데이터가 있으면 페이지 증가로 표시
+        hasMore = false;
+        updateLoadMoreVisibility();
     }
 }
 
-
-/* --- 관리자 페이지 (admin.html) 스타일 (유지) --- */
-#login-view { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-.login-box { width: 100%; max-width: 400px; background: var(--card-bg); padding: 2.5rem; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
-.login-box h2 { text-align: center; margin-bottom: 2rem; }
-.form-group { margin-bottom: 1.5rem; }
-.form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-.form-group input { width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius); }
-.form-group input[type="radio"], .form-group input[type="checkbox"] { width: auto; padding: 0; border: none; border-radius: 0; }
-.form-group textarea { width: 100%; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius); font-size: 15px; line-height: 1.6; }
-.admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-.sticky-banner { position: sticky; top: 0; z-index: 999; background: #fff; border: 1px solid var(--border-color); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; margin-bottom: 1rem; }
-.sticky-banner .banner-row { display:flex; justify-content: space-between; align-items:center; margin-bottom: 0.5rem; }
-.progress { width: 100%; height: 8px; background: #edf2f7; border-radius: 6px; overflow: hidden; }
-.progress-bar { height: 100%; background: linear-gradient(90deg, #5a67d8, #10b981); transition: width .2s ease; }
-.analysis-log { margin-top: .5rem; max-height: 180px; overflow: auto; background: #f9fafb; padding: .75rem; border-radius: 6px; border: 1px solid var(--border-color); font-size: 12px; }
-.tabs { border-bottom: 1px solid var(--border-color); margin-bottom: 2rem; }
-.tab-link { padding: 1rem 0; margin-right: 2rem; cursor: pointer; border: none; background: none; font-size: 1rem; color: var(--text-secondary); border-bottom: 3px solid transparent; }
-.tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 600; }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-.data-toolbar { 
-    margin-bottom: 1.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-#data-search-input { width: 100%; max-width: 400px; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius); }
-.upload-box { background-color: var(--card-bg); padding: 2rem; border-radius: var(--radius); box-shadow: var(--shadow); }
-.upload-box h2 { margin-bottom: 0.5rem; }
-.upload-box p { margin-bottom: 1.5rem; color: var(--text-secondary); }
-#upload-btn { margin-top: 1rem; }
-#bulk-delete-btn { background-color: var(--danger-color); }
-#bulk-delete-btn:hover { background-color: var(--danger-hover); }
-
-/* 관리자 테이블 특정 스타일 */
-#data-table-container {
-     background-color: var(--card-bg);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    overflow: hidden;
-}
-/* 관리자 테이블 체크박스 열 조정 */
-#data-table-container .data-table th:first-child, 
-#data-table-container .data-table td:first-child { 
-    width: 1%; 
-    text-align: center;
+async function checkForUpdates(sinceTs) {
+    try {
+        const { data, error } = await supabase
+            .from('videos')
+            .select('*')
+            .gt('last_modified', sinceTs || 0)
+            .order('last_modified', { ascending: false })
+            .limit(50);
+        if (error || !Array.isArray(data) || data.length === 0) return;
+        const updates = data;
+        const map = new Map(allVideos.map(v => [v.id, v]));
+        updates.forEach(u => map.set(u.id, u));
+        allVideos = Array.from(map.values());
+        await setCached(allVideos);
+        filterAndRender();
+    } catch {}
 }
 
-.action-buttons .btn-edit { background-color: #3182ce; }
-.action-buttons .btn-edit:hover { background-color: #2b6cb0; }
-.single-delete-btn { background-color: var(--danger-color) !important; }
-.single-delete-btn:hover { background-color: var(--danger-hover) !important; }
+function updateLoadMoreVisibility() {
+    if (!loadMoreBtn) return;
+    loadMoreBtn.style.display = hasMore ? 'inline-block' : 'none';
+}
 
+// --------- 필터링 ---------
+function filterAndRender(keepPage = false) {
+    filteredVideos = [...allVideos];
+    const searchTerm = (searchInput?.value || '').toLowerCase();
+    if (searchTerm) {
+        filteredVideos = filteredVideos.filter(video => {
+            const fieldsToSearch = [
+                video.title, video.channel, video.kr_category_large,
+                video.kr_category_medium, video.kr_category_small,
+                video.material, video.template_type, video.group_name,
+                video.source_type, video.hooking, video.narrative_structure
+            ];
+            return fieldsToSearch.some(field => field && String(field).toLowerCase().includes(searchTerm));
+        });
+    }
+    const formType = formTypeFilter?.value || 'all';
+    if (formType !== 'all') filteredVideos = filteredVideos.filter(v => v.group_name === formType);
+    const startDate = startDateFilter?.value || '';
+    const endDate = endDateFilter?.value || '';
+    if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
+    if (endDate) filteredVideos = filteredVideos.filter(v => v.date && v.date <= endDate);
 
-/* --- 파일 첨부 UI 스타일 (유지) --- */
-#file-drop-area { border: 2px dashed var(--border-color); border-radius: var(--radius); padding: 1rem; text-align: center; transition: background-color 0.2s ease, border-color 0.2s ease; margin-bottom: 1rem; }
-#file-drop-area.dragover { background-color: #edf2f7; border-color: var(--primary-color); }
-.file-drop-label { display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; }
-.file-button { background-color: #e53e3e; color: white; padding: 0.8rem 1.5rem; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 1rem; font-weight: 600; margin-bottom: 0.5rem; box-shadow: var(--shadow); }
-.file-button:hover { background-color: #c53030; }
-.file-icons { display: flex; align-items: center; gap: 0.5rem; }
-.file-icons svg { stroke: rgba(255,255,255,0.8); }
-.drop-message { color: var(--text-secondary); font-size: 0.9rem; }
-#file-name-display { margin-bottom: 1rem; font-weight: 500; color: var(--text-primary); display: none; background: #f0f0f0; padding: 0.5rem 1rem; border-radius: var(--radius); }
-#file-name-display.active { display: block; }
+    // 구독자 필터 적용
+    if (subsFilter) {
+        let min = subsFilter.min != null ? subsFilter.min : null;
+        let max = subsFilter.max != null ? subsFilter.max : null;
+        switch (subsFilter.preset) {
+            case 'lt1k': min = 0; max = 1000; break;
+            case '1k-10k': min = 1000; max = 10000; break;
+            case '10k-100k': min = 10000; max = 100000; break;
+            case '100k-1m': min = 100000; max = 1000000; break;
+            case '>=1m': min = 1000000; max = null; break;
+        }
+        if (min != null || max != null) {
+            filteredVideos = filteredVideos.filter(v => {
+                const subs = parseCount(v.subscribers_numeric || v.subscribers || 0);
+                if (min != null && subs < min) return false;
+                if (max != null && subs > max) return false;
+                return true;
+            });
+        }
+    }
 
+    if (!keepPage) currentPage = 1;
+    updateStats(filteredVideos);
+    renderCurrentView();
+}
 
-/* 모달 (유지) */
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-.modal-content { background: white; border-radius: var(--radius); box-shadow: var(--shadow-lg); width: 90%; max-width: 700px; display: flex; flex-direction: column; max-height: 90vh; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; border-bottom: 1px solid var(--border-color); }
-.modal-title { margin: 0; font-size: 1.25rem; }
-.close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; }
-#edit-form { padding: 1.5rem; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 1rem; padding: 1.5rem; border-top: 1px solid var(--border-color); }
-.modal-content.small { max-width: 450px; padding: 2rem; }
-#confirm-modal-message { margin: 1rem 0 2rem; }
-.modal-content.small .modal-actions { padding: 0; border-top: 0; }
+// --------- 렌더링 ---------
+function renderCurrentView() {
+    if (viewMode === 'channel') {
+        renderChannelView();
+    } else {
+        renderVideoView();
+    }
+    renderPagination();
+}
 
-/* 예약 실행 라디오 옵션 정렬 */
-.inline-options { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.inline-options .option { display: inline-flex; align-items: center; gap: 6px; }
+function renderVideoView() {
+    ensureTableSkeleton('video');
+    if (!videoTableBody) return;
 
-/* 나의 영상 체크 - 대본/체크리스트 큰 입력 영역 */
-#my-transcript { min-height: 380px; resize: vertical; }
-#my-checklist { min-height: 240px; resize: vertical; }
+    // 정렬
+    let rows = filteredVideos.slice();
+    rows.forEach(r => { r._pct = computeChangePct(r); r._riseAbs = getRiseAbs(r); });
+    rows.sort((a,b) => {
+        if (sortMode === 'pct_desc') return (b._pct - a._pct) || (b._riseAbs - a._riseAbs);
+        if (sortMode === 'abs_desc') return (b._riseAbs - a._riseAbs) || (b._pct - a._pct);
+        if (sortMode === 'views_desc' || sortMode === 'views_asc') {
+            const av = parseCount(a.views_numeric || a.views || 0);
+            const bv = parseCount(b.views_numeric || b.views || 0);
+            return sortMode === 'views_desc' ? (bv - av) : (av - bv);
+        }
+        if (sortMode === 'subs_desc' || sortMode === 'subs_asc') {
+            const as = parseCount(a.subscribers_numeric || a.subscribers || 0);
+            const bs = parseCount(b.subscribers_numeric || b.subscribers || 0);
+            return sortMode === 'subs_desc' ? (bs - as) : (as - bs);
+        }
+        // date_desc 또는 기타
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+    });
+
+    const total = rows.length;
+    if (!total) {
+        videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
+        return;
+    }
+
+    // 현재 페이지 슬라이스
+    const startIndex = (currentPage - 1) * PAGE_BATCH;
+    const endIndex = startIndex + PAGE_BATCH;
+    const pageRows = rows.slice(startIndex, endIndex);
+
+    const html = pageRows.map((r, idx) => {
+        const curr = parseCount(r.views_numeric || r.views || 0);
+        const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
+        const pct = prev ? ((curr - prev) / prev) * 100 : 0;
+        const riseColor = pct >= 0 ? '#16a34a' : '#dc2626';
+        const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
+        const lastChecked = r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-';
+        return `
+            <tr>
+            <td>${startIndex + idx + 1}</td>
+            <td>${thumbnail}</td>
+            <td class="table-title"><a href="details.html?id=${r.id}" target="_blank">${r.title || ''}</a></td>
+            <td>${r.channel || ''}</td>
+            <td>${fmt(curr)}</td>
+            <td>${fmt(prev)}</td>
+            <td>${fmt(curr - prev)}</td>
+            <td style="color:${riseColor}">${(pct>=0?'+':'') + pct.toFixed(2)}%</td>
+            <td>${lastChecked}</td>
+            <td><a class="btn btn-details" href="${r.youtube_url || '#'}" target="_blank">YouTube</a></td>
+        </tr>`;
+    }).join('');
+
+    videoTableBody.innerHTML = html;
+}
+
+function groupByChannel(rows) {
+    const map = new Map();
+    for (const r of rows) {
+        const channel = (r.channel || '').trim() || 'Unknown';
+        if (!map.has(channel)) {
+            map.set(channel, { channel, videos: [], totalRiseAbs: 0, totalViews: 0, avgRisePct: 0, representative: null });
+        }
+        const bucket = map.get(channel);
+        const curr = parseCount(r.views_numeric || r.views || 0) || 0;
+        const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
+        const riseAbs = Math.max(0, curr - prev);
+        bucket.videos.push(r);
+        bucket.totalRiseAbs += riseAbs;
+        bucket.totalViews += curr;
+        // 대표 영상: 현재 조회수 최대
+        if (!bucket.representative) bucket.representative = r; else {
+            const curRepViews = parseCount(bucket.representative.views_numeric || bucket.representative.views || 0) || 0;
+            if (curr > curRepViews) bucket.representative = r;
+        }
+    }
+    for (const bucket of map.values()) {
+        const pcts = bucket.videos.map(v => computeChangePct(v));
+        bucket.avgRisePct = pcts.length ? (pcts.reduce((a,b)=>a+b,0) / pcts.length) : 0;
+    }
+    return Array.from(map.values());
+}
+
+function renderChannelView() {
+    ensureTableSkeleton('channel');
+    if (!videoTableBody) return;
+
+    let rows = groupByChannel(filteredVideos);
+    rows.sort((a,b) => {
+        if (sortMode === 'pct_desc') return (b.avgRisePct - a.avgRisePct) || (b.totalViews - a.totalViews);
+        if (sortMode === 'abs_desc') return (b.totalViews - a.totalViews) || (b.avgRisePct - a.avgRisePct);
+        // 기본: totalViews 내림차순
+        return (b.totalViews - a.totalViews) || (b.avgRisePct - a.avgRisePct);
+    });
+
+    const total = rows.length;
+    if (!total) {
+        videoTableBody.innerHTML = '<tr><td colspan="7" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
+        return;
+    }
+    const startIndex = (currentPage - 1) * PAGE_BATCH;
+    const endIndex = startIndex + PAGE_BATCH;
+    const pageRows = rows.slice(startIndex, endIndex);
+    const html = pageRows.map((r, idx) => {
+        const thumb = r.representative?.thumbnail ? `<img src="${r.representative.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
+        // 대표 영상이 있다면 상세 페이지로 이동하도록 연결
+        const repId = r.representative?.id || '';
+        const link = repId ? `details.html?id=${encodeURIComponent(repId)}` : '#';
+        // 모든 영상 썸네일 목록 (최신순)
+        const videosSorted = r.videos.slice().sort((a,b) => {
+            const da = a.date ? new Date(a.date).getTime() : 0;
+            const db = b.date ? new Date(b.date).getTime() : 0;
+            return db - da;
+        });
+        const thumbs = videosSorted.map(v => {
+            const t = v.thumbnail ? `<img src="${v.thumbnail}" class="thumb-mini" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumb-mini\\'>-</div>\'">` : `<div class="no-thumb-mini">-</div>`;
+            const vid = v.id ? `details.html?id=${encodeURIComponent(v.id)}` : '#';
+            const title = (v.title || '').replace(/"/g, '');
+            return `<a class="thumb-link" href="${vid}" target="_blank" title="${title}">${t}</a>`;
+        }).join('');
+        const isOpen = expandedChannels.has(r.channel);
+        return `
+            <tr class="channel-row" data-channel="${r.channel}">
+                <td>${startIndex + idx + 1}</td>
+                <td>${thumb}</td>
+                <td class="table-title toggle-channel" title="클릭하여 영상 목록 열기/닫기">${r.channel}</td>
+                <td>${r.videos.length}</td>
+            <td>${fmt(r.totalViews)}</td>
+                <td style=\"color:${r.avgRisePct>=0? '#16a34a':'#dc2626'}\">${(r.avgRisePct>=0?'+':'') + r.avgRisePct.toFixed(2)}%</td>
+                <td><button class="btn btn-details open-details" data-rep="${repId}">자세히</button></td>
+            </tr>
+            <tr class="channel-videos-row ${isOpen ? 'open' : ''}" data-channel="${r.channel}">
+                <td colspan="7">
+                    <div class="channel-videos ${isOpen ? 'expanded' : ''}">${thumbs}</div>
+                </td>
+            </tr>`;
+    }).join('');
+
+    videoTableBody.innerHTML = html;
+}
+
+function getTotalPages() {
+    const rows = viewMode === 'channel' ? groupByChannel(filteredVideos) : filteredVideos;
+    return Math.max(1, Math.ceil(rows.length / PAGE_BATCH));
+}
+
+function renderPagination() {
+    if (!paginationContainer) return;
+    const totalPages = getTotalPages();
+    if (totalPages <= 1) { paginationContainer.innerHTML = ''; return; }
+    const makeBtn = (p) => `<button class="page-btn ${p===currentPage?'active':''}" data-page="${p}">${p}</button>`;
+    const maxShow = 9; // 1 2 3 4 5 6 7 8 9
+    let start = Math.max(1, currentPage - Math.floor(maxShow/2));
+    let end = Math.min(totalPages, start + maxShow - 1);
+    if (end - start + 1 < maxShow) start = Math.max(1, end - maxShow + 1);
+    const parts = [];
+    if (currentPage > 1) parts.push(`<button class="page-btn" data-page="${currentPage-1}">이전</button>`);
+    if (start > 1) parts.push(makeBtn(1));
+    if (start > 2) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+    for (let p = start; p <= end; p++) parts.push(makeBtn(p));
+    if (end < totalPages - 1) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+    if (end < totalPages) parts.push(makeBtn(totalPages));
+    if (currentPage < totalPages) parts.push(`<button class="page-btn" data-page="${currentPage+1}">다음</button>`);
+    paginationContainer.innerHTML = parts.join('');
+}
+
+// --------- 이벤트 ---------
+[searchInput, formTypeFilter, startDateFilter, endDateFilter].forEach(el => {
+    if (el) {
+        el.addEventListener('input', filterAndRender);
+        if (el.tagName === 'SELECT' || el.type === 'date') el.addEventListener('change', filterAndRender);
+    }
+});
+
+// 칩: 보기 전환
+viewChips.forEach(btn => {
+    btn.addEventListener('click', () => {
+        setActiveChip(viewChips, btn);
+        viewMode = btn.getAttribute('data-view') || 'video';
+        currentPage = 1;
+        renderCurrentView();
+        renderPagination();
+    });
+});
+
+// 칩: 정렬 전환
+sortChips.forEach(btn => {
+    btn.addEventListener('click', () => {
+        setActiveChip(sortChips, btn);
+        sortMode = btn.getAttribute('data-sort') || 'pct_desc';
+        currentPage = 1;
+        renderCurrentView();
+        renderPagination();
+    });
+});
+
+// 세부 정렬 드롭다운: 조회수/구독자 오름·내림차순 반영
+if (sortFilter) {
+    sortFilter.addEventListener('change', () => {
+        const v = sortFilter.value;
+        if (v === 'views_desc') sortMode = 'views_desc';
+        else if (v === 'views_asc') sortMode = 'views_asc';
+        else if (v === 'subs_desc') sortMode = 'subs_desc';
+        else if (v === 'subs_asc') sortMode = 'subs_asc';
+        else sortMode = 'date_desc';
+        currentPage = 1;
+        renderCurrentView();
+        renderPagination();
+    });
+}
+
+// 초기 스켈레톤 & 데이터 로드
+ensureTableSkeleton('video');
+fetchVideos();
+
+// 통계 카드 토글
+if (toggleStatsChip && statsGrid) {
+    toggleStatsChip.addEventListener('click', () => {
+        statsGrid.classList.toggle('hidden');
+    });
+}
+
+// 페이지당 개수 변경
+// 페이지 크기 UI 제거됨
+
+// 페이지네이션 클릭 핸들러
+document.addEventListener('click', (e) => {
+    // 페이지네이션
+    const btn = e.target.closest('.page-btn');
+    if (btn) {
+        const p = Number(btn.getAttribute('data-page'));
+        if (!isFinite(p) || p < 1) return;
+        currentPage = p;
+        renderCurrentView();
+        renderPagination();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+    }
+    // 채널 드롭다운 토글
+    const toggleCell = e.target.closest('.toggle-channel');
+    if (toggleCell) {
+        const tr = toggleCell.closest('.channel-row');
+        const channel = tr?.getAttribute('data-channel');
+        if (!channel) return;
+        if (expandedChannels.has(channel)) expandedChannels.delete(channel); else expandedChannels.add(channel);
+        renderCurrentView();
+        renderPagination();
+        return;
+    }
+    // 대표 영상 버튼: 알림창으로 간단 정보
+    const openBtn = e.target.closest('.open-details');
+    if (openBtn) {
+        const repId = openBtn.getAttribute('data-rep');
+        if (repId) {
+            alert('대표 영상 상세로 이동합니다.');
+            window.open(`details.html?id=${encodeURIComponent(repId)}`, '_blank');
+        }
+        return;
+    }
+});
+
+// 구독자 필터 이벤트 바인딩
+subsChips.forEach(btn => {
+    btn.addEventListener('click', () => {
+        setActiveChip(subsChips, btn);
+        subsFilter.preset = btn.getAttribute('data-subs') || 'all';
+        subsFilter.min = null; subsFilter.max = null;
+        currentPage = 1;
+        filterAndRender(true);
+    });
+});
+if (subsApplyBtn) {
+    subsApplyBtn.addEventListener('click', () => {
+        subsFilter.preset = 'custom';
+        const min = Number(subsMinInput?.value || '');
+        const max = Number(subsMaxInput?.value || '');
+        subsFilter.min = Number.isFinite(min) ? min : null;
+        subsFilter.max = Number.isFinite(max) ? max : null;
+        currentPage = 1;
+        filterAndRender(true);
+    });
+}
+if (subsResetBtn) {
+    subsResetBtn.addEventListener('click', () => {
+        subsFilter = { preset: 'all', min: null, max: null };
+        if (subsMinInput) subsMinInput.value = '';
+        if (subsMaxInput) subsMaxInput.value = '';
+        subsChips.forEach(ch => ch.classList.remove('chip-active'));
+        currentPage = 1;
+        filterAndRender(true);
+    });
+}
