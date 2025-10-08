@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>랭킹 대시보드</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/main-D5pkZSTa.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/style-HOslubru.js">
+  <link rel="modulepreload" crossorigin href="/assets/firebase-config-D0anIP3T.js">
+  <link rel="stylesheet" crossorigin href="/assets/style-NRPXg6ng.css">
+</head>
+<body class="theme-dark">
+
+    <div class="container">
+        <header class="topbar">
+            <div class="brand">
+                <a href="index.html" class="brand-title">유튜브 창고</a>
+            </div>
+            <nav class="menu" id="top-menu">
+                <a class="menu-link" href="index.html">홈</a>
+                <a class="menu-link" href="my.html">나의 영상 체크</a>
+                <a class="menu-link" href="admin.html">관리자</a>
+            </nav>
+        </header>
+
+        <!-- 상단 통계 카드 -->
+        <section class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">총 채널 수</div>
+                <div class="stat-value" id="stat-channels">-</div>
+                <div class="stat-sub" id="stat-channels-sub">로드 중...</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">총 영상 수</div>
+                <div class="stat-value" id="stat-videos">-</div>
+                <div class="stat-sub" id="stat-videos-sub">로드 중...</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">평균 증가율</div>
+                <div class="stat-value" id="stat-avg-rise">-</div>
+                <div class="stat-sub" id="stat-avg-rise-sub">최근 24h</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">업데이트</div>
+                <div class="stat-value" id="stat-updated">-</div>
+                <div class="stat-sub">최근 체크 시각</div>
+            </div>
+        </section>
+
+        <!-- 필터/툴바 (컴팩트, 한 줄) -->
+        <div class="filter-container toolbar-line">
+            <div class="view-chip-group compact" role="tablist" aria-label="보기">
+                <button class="chip chip-compact chip-active" data-view="video">영상</button>
+                <button class="chip chip-compact" data-view="channel">채널</button>
+            </div>
+            <div class="sort-chip-group compact" role="tablist" aria-label="정렬">
+                <button class="chip chip-compact chip-active" data-sort="pct_desc">증가율▼</button>
+                <button class="chip chip-compact" data-sort="abs_desc">상승▼</button>
+                <button class="chip chip-compact" data-sort="date_desc">최신순</button>
+            </div>
+            <div class="toolbar-sep"></div>
+            <input type="text" id="searchInput" class="input-compact" placeholder="검색: 제목/채널/카테고리" />
+            <select id="form-type-filter" class="select-compact">
+                <option value="all">폼 유형: 전체</option>
+                <option value="롱폼">롱폼</option>
+                <option value="숏폼">숏폼</option>
+            </select>
+            <div class="date-compact">
+                <input type="date" id="start-date-filter" class="select-compact">
+                <span class="date-sep">~</span>
+                <input type="date" id="end-date-filter" class="select-compact">
+            </div>
+            <select id="sort-filter" class="select-compact">
+                <option value="date_desc">세부정렬: 최신순</option>
+                <option value="views_desc">조회수 높은 순</option>
+                <option value="views_asc">조회수 낮은 순</option>
+                <option value="subs_desc">구독자 많은 순</option>
+                <option value="subs_asc">구독자 적은 순</option>
+            </select>
+            <select id="page-size-select" class="select-compact">
+                <option value="50">표시 50</option>
+                <option value="100" selected>표시 100</option>
+                <option value="200">표시 200</option>
+            </select>
+            <button id="toggle-stats-chip" class="chip chip-compact" title="통계 카드">통계</button>
+        </div>
+        <div style="display:flex; justify-content:center; margin-top:.25rem;">
+            <button id="load-more-btn" class="btn" style="padding:.4rem .8rem; font-size:.85rem;">더 보기</button>
+        </div>
+
+        <!-- 랭킹 테이블 -->
+        <main id="video-table-container">
+            <table class="data-table" aria-describedby="stat-updated">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>썸네일</th>
+                        <th>제목</th>
+                        <th>채널</th>
+                        <th>현재 조회수</th>
+                        <th>기준</th>
+                        <th>증가수</th>
+                        <th>증가율</th>
+                        <th>업데이트</th>
+                        <th>링크</th>
+                    </tr>
+                </thead>
+                <tbody id="video-table-body">
+                    <tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>
+                </tbody>
+            </table>
+        </main>
+
+        <div id="pagination-container" class="pagination-container"></div>
+
+    </div>
+
+</body>
+
+</html>
