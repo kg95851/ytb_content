@@ -92,7 +92,9 @@ body { font-family: var(--font-family-main); background-color: var(--bg-color); 
 
 
 /* --- 페이지네이션 스타일 (유지) --- */
-.pagination-container { display:none; }
+.pagination-container { display:flex; justify-content:center; gap:6px; margin: 16px 0; }
+.pagination-container .page-btn { padding: 6px 10px; border:1px solid var(--border-color); background:#0b1326; color:var(--text-primary); border-radius:6px; cursor:pointer; font-size:13px; }
+.pagination-container .page-btn.active { background:#1f2937; border-color:#334155; font-weight:700; }
 
 
 /* --- 관리자 & 사용자 공유 테이블 스타일 (수정 및 추가) --- */
