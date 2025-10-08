@@ -29,7 +29,6 @@ const statVideosSub = document.getElementById('stat-videos-sub');
 const toggleStatsChip = document.getElementById('toggle-stats-chip');
 const statsGrid = document.getElementById('stats-grid');
 const pageSizeSelect = document.getElementById('page-size-select');
-const loadMoreBtn = document.getElementById('load-more-btn');
 
 // 상태
 let allVideos = [];
@@ -42,6 +41,7 @@ let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
 // 페이지네이션 쿼리 상태
 let lastVisible = null;
 let hasMore = true;
+let dateCursor = null; // static JSON 기반 커서
 
 // 로컬 캐시
 const CACHE_TTL = 60 * 60 * 1000; // 1시간
@@ -213,6 +213,14 @@ async function fetchVideos() {
                 allVideos = await res.json();
                 await setCached(allVideos);
                 filterAndRender();
+                // 정적 JSON 이후에도 추가 로딩 가능하도록 커서 설정
+                try {
+                    const sorted = allVideos.slice().filter(v => v.date).sort((a,b)=> (new Date(b.date||0)) - (new Date(a.date||0)));
+                    const last = sorted[sorted.length - 1];
+                    dateCursor = last?.date || null;
+                    hasMore = true; // Firestore에서 추가 페이지 로드 허용
+                    updateLoadMoreVisibility();
+                } catch {}
                 return;
             }
         } catch {}
@@ -259,16 +267,27 @@ async function fetchVideos() {
 }
 
 async function loadNextPage() {
-    if (!hasMore || !lastVisible) return;
+    if (!hasMore) return;
+    // 정적 JSON만 로드된 상태이면, 첫 페이지의 커서(anchor)만 구한다
+    if (!lastVisible) {
+        const anchorSnap = await getDocs(query(collection(db, 'videos'), orderBy('date', 'desc'), limit(itemsPerPage)));
+        lastVisible = anchorSnap.docs[anchorSnap.docs.length - 1] || null;
+        if (!lastVisible) { hasMore = false; updateLoadMoreVisibility(); return; }
+    }
     const q2 = query(collection(db, 'videos'), orderBy('date', 'desc'), startAfter(lastVisible), limit(itemsPerPage));
     const snapshot = await getDocs(q2);
     const newVideos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    allVideos = [...allVideos, ...newVideos];
-    lastVisible = snapshot.docs[snapshot.docs.length - 1];
-    hasMore = snapshot.docs.length === itemsPerPage;
-    await setCached(allVideos);
-    filterAndRender();
-    updateLoadMoreVisibility();
+    if (newVideos.length) {
+        allVideos = [...allVideos, ...newVideos];
+        lastVisible = snapshot.docs[snapshot.docs.length - 1] || lastVisible;
+        hasMore = snapshot.docs.length === itemsPerPage;
+        await setCached(allVideos);
+        filterAndRender();
+        updateLoadMoreVisibility();
+    } else {
+        hasMore = false;
+        updateLoadMoreVisibility();
+    }
 }
 
 async function checkForUpdates(sinceTs) {
@@ -340,7 +359,7 @@ function renderVideoView() {
         // date_desc 또는 기타
         const dateA = a.date ? new Date(a.date).getTime() : 0;
         const dateB = b.date ? new Date(b.date).getTime() : 0;
-        return dateB - dateA;
+                return dateB - dateA;
     });
 
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -430,7 +449,7 @@ function renderChannelView() {
         const repId = r.representative?.id || '';
         const link = repId ? `details.html?id=${encodeURIComponent(repId)}` : '#';
         return `
-        <tr>
+            <tr>
             <td>${startIndex + idx + 1}</td>
             <td>${thumb}</td>
             <td class="table-title">${r.channel}</td>
@@ -475,7 +494,7 @@ function renderPagination() {
     nextButton.className = 'pagination-btn';
     nextButton.disabled = currentPage === totalPages;
     nextButton.addEventListener('click', () => currentPage < totalPages && changePage(currentPage + 1));
-
+    
     const pageInfo = document.createElement('span');
     pageInfo.className = 'page-info';
     pageInfo.textContent = `${currentPage} / ${totalPages}`;
@@ -547,13 +566,7 @@ if (pageSizeSelect) {
 }
 
 // "더 보기" 버튼 또는 무한 스크롤 핸들러
-if (loadMoreBtn) {
-    loadMoreBtn.addEventListener('click', () => {
-        loadNextPage();
-    });
-}
-
-// 간단한 무한 스크롤(옵션): 하단 근처에서 자동 로드
+// 무한 스크롤: 하단 근처에서 자동 로드
 let isLoadingNext = false;
 window.addEventListener('scroll', async () => {
     if (isLoadingNext) return;
