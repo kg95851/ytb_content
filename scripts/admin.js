@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, getDoc, writeBatch, deleteDoc, updateDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 import { firebaseConfig } from './firebase-config.js';
 
@@ -8,6 +9,7 @@ import { firebaseConfig } from './firebase-config.js';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // DOM 요소
 const loginView = document.getElementById('login-view');
@@ -783,7 +785,8 @@ function appendScheduleLog(line) {
 async function callGeminiAPI(systemPrompt, userContent) {
     const key = getStoredGeminiKey();
     if (!key) throw new Error('Gemini API 키가 설정되지 않았습니다.');
-    const model = 'models/gemini-1.5-pro-latest';
+    // 비용 절감: 기본 모델을 flash로 변경 (필요 시 pro로 스위치)
+    const model = 'models/gemini-1.5-flash-latest';
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -801,6 +804,42 @@ async function callGeminiAPI(systemPrompt, userContent) {
     return text;
 }
 
+// Context Cache 생성 (입력 토큰 비용 절감)
+async function createGeminiCache(text) {
+    const key = getStoredGeminiKey();
+    if (!key) throw new Error('Gemini API 키가 설정되지 않았습니다.');
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/cachedContents?key=' + encodeURIComponent(key), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'models/gemini-1.5-pro-001',
+            contents: [{ role: 'user', parts: [{ text }] }],
+            ttl: '3600s'
+        })
+    });
+    if (!res.ok) throw new Error('Cache 생성 실패: ' + res.status);
+    return await res.json(); // { name: 'cachedContents/...' }
+}
+
+async function callGeminiWithCache(cacheName, prompt) {
+    const key = getStoredGeminiKey();
+    if (!key) throw new Error('Gemini API 키가 설정되지 않았습니다.');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${encodeURIComponent(key)}`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            cachedContent: cacheName,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 }
+        })
+    });
+    if (!res.ok) throw new Error('Gemini (cache) 실패: ' + res.status);
+    const data = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+// 통합 분석: 1회 호출 + 캐시 + 도파민 샘플링/로컬
 async function analyzeOneVideo(video) {
     const youtubeUrl = video.youtube_url;
     if (!youtubeUrl) throw new Error('YouTube URL 없음');
@@ -811,35 +850,41 @@ async function analyzeOneVideo(video) {
     const sentences = splitTranscriptIntoSentences(transcript);
     appendAnalysisLog(`(${video.id}) 문장 분해 ${sentences.length}개`);
 
-    // 1) 소재 분석 (우선 수행)
-    appendAnalysisLog(`(${video.id}) 소재 분석 시작`);
-    const materialOnly = await callGeminiAPI(buildMaterialPrompt(), transcript);
+    // 증분: 이미 분석된 경우 스킵 (핵심 필드 기준)
+    if (video.analysis_full && Array.isArray(video.keywords_ko) && video.keywords_ko.length) {
+        appendAnalysisLog(`(${video.id}) 이미 분석됨 — 통합 호출 스킵`);
+        return { updated: { ...video } };
+    }
 
-    // 2) 템플릿 분석 (후킹요소/기승전결)
-    appendAnalysisLog(`(${video.id}) 템플릿 분석 시작`);
-    const analysisText = await callGeminiAPI(buildAnalysisPrompt(), transcript);
+    // 1) 캐시 생성 (입력 토큰 비용 절감)
+    appendAnalysisLog(`(${video.id}) 컨텍스트 캐시 생성`);
+    let cacheName = '';
+    try {
+        const cache = await createGeminiCache(transcript);
+        cacheName = cache?.name || '';
+    } catch (e) {
+        appendAnalysisLog(`(${video.id}) 캐시 실패 — 일반 호출로 진행 (${e?.message || e})`);
+    }
 
-    // 3) 카테고리 분석 (KR/EN/CN)
-    appendAnalysisLog(`(${video.id}) 카테고리 분석 시작`);
-    const categoriesText = await callGeminiAPI(buildCategoryPrompt(), transcript);
+    // 2) 통합 프롬프트 (1회 호출)
+    const combinedPrompt = buildCombinedPrompt(video.title || '');
+    const allAnalysis = cacheName
+        ? await callGeminiWithCache(cacheName, combinedPrompt)
+        : await callGeminiAPI(combinedPrompt, transcript);
 
-    // 4) 키워드 분석 (KO/EN/ZH)
-    appendAnalysisLog(`(${video.id}) 키워드 분석 시작`);
-    const keywordsText = await callGeminiAPI(
-        buildKeywordsPrompt(),
-        `제목:\n${video.title || ''}\n\n대본:\n${transcript}`
-    );
-
-    // 5) 도파민 그래프 분석(JSON)
-    appendAnalysisLog(`(${video.id}) 도파민 분석 시작`);
-    const dopamineGraph = await analyzeDopamineByBatches(sentences, appendAnalysisLog);
-    if (!Array.isArray(dopamineGraph) || dopamineGraph.length === 0) {
-        appendAnalysisLog(`(${video.id}) 도파민 결과가 비어 있습니다 (파싱 실패 가능)`);
+    // 3) 도파민: 10% 샘플 + 로컬 보조 점수
+    const keySentences = sentences.filter((_, i) => i % 10 === 0);
+    appendAnalysisLog(`(${video.id}) 도파민 샘플 ${keySentences.length}개`);
+    let dopamineGraph = [];
+    try {
+        dopamineGraph = await analyzeDopamineByBatches(keySentences, appendAnalysisLog);
+    } catch {}
+    if (!Array.isArray(dopamineGraph) || !dopamineGraph.length) {
+        dopamineGraph = keySentences.map(s => ({ sentence: s, level: estimateDopamineLocal(s), reason: 'heuristic' }));
     }
 
     // 결과 매핑
     const updated = { ...video };
-    updated.analysis_full = analysisText;
     updated.dopamine_graph = dopamineGraph;
     updated.analysis_transcript_len = transcript.length;
     updated.transcript_text = transcript;
@@ -848,25 +893,27 @@ async function analyzeOneVideo(video) {
         const m = text.match(regex); return m ? (m[1] || m[0]).trim() : '';
     }
 
-    // 후킹요소/기승전결 (템플릿 분석 기반)
-    const hookFromAnalysis = extractHookFromAnalysis(analysisText);
-    updated.hooking = hookFromAnalysis || extractLine(/후킹\s*요소?\s*[:：]\s*(.+)/i, analysisText) || updated.hooking;
-    const conciseNarrative = extractConciseNarrative(analysisText);
-    updated.narrative_structure = conciseNarrative || '없음';
-
-    // 카테고리 (KR/EN/CN)
-    updated.kr_category_large = extractLine(/한국\s*대\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_large;
-    updated.kr_category_medium = extractLine(/한국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_medium;
-    updated.kr_category_small = extractLine(/한국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.kr_category_small;
-    updated.en_category_main = extractLine(/EN\s*Main\s*Category\s*[:：]\s*(.+)/i, categoriesText) || updated.en_category_main;
-    updated.en_category_sub = extractLine(/EN\s*Sub\s*Category\s*[:：]\s*(.+)/i, categoriesText) || updated.en_category_sub;
-    updated.en_micro_topic = extractLine(/EN\s*Micro\s*Topic\s*[:：]\s*(.+)/i, categoriesText) || updated.en_micro_topic;
-    updated.cn_category_large = extractLine(/중국\s*대\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_large;
-    updated.cn_category_medium = extractLine(/중국\s*중\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_medium;
-    updated.cn_category_small = extractLine(/중국\s*소\s*카테고리\s*[:：]\s*(.+)/i, categoriesText) || updated.cn_category_small;
-
-    // 키워드 (KO/EN/ZH)
-    const { ko: kwKO, en: kwEN, zh: kwZH } = parseKeywordsText(keywordsText);
+    // 통합 JSON 파싱 → 필드 매핑
+    const parsed = parseCombinedJson(allAnalysis);
+    const { ko: kwKO, en: kwEN, zh: kwZH } = parsed.keywords || { ko: [], en: [], zh: [] };
+    updated.material = parsed.material || updated.material;
+    const cat = parsed.categories || {};
+    const kr = Array.isArray(cat.kr) ? cat.kr : []; // [대, 중, 소]
+    updated.kr_category_large = kr[0] || updated.kr_category_large;
+    updated.kr_category_medium = kr[1] || updated.kr_category_medium;
+    updated.kr_category_small = kr[2] || updated.kr_category_small;
+    const en = Array.isArray(cat.en) ? cat.en : [];
+    updated.en_category_main = en[0] || updated.en_category_main;
+    updated.en_category_sub = en[1] || updated.en_category_sub;
+    updated.en_micro_topic = en[2] || updated.en_micro_topic;
+    const cn = Array.isArray(cat.cn) ? cat.cn : [];
+    updated.cn_category_large = cn[0] || updated.cn_category_large;
+    updated.cn_category_medium = cn[1] || updated.cn_category_medium;
+    updated.cn_category_small = cn[2] || updated.cn_category_small;
+    // 서술 구조/후킹
+    updated.hooking = parsed.hooking || updated.hooking;
+    updated.narrative_structure = parsed.narrative || updated.narrative_structure || '없음';
+    // 키워드 저장
     if (kwKO.length || kwEN.length || kwZH.length) {
         appendAnalysisLog(`(${video.id}) 키워드 추출 완료 — KO:${kwKO.length}, EN:${kwEN.length}, ZH:${kwZH.length}`);
     } else {
@@ -876,14 +923,54 @@ async function analyzeOneVideo(video) {
     updated.keywords_en = kwEN;
     updated.keywords_zh = kwZH;
 
-    // 소재: Gemini 강제 출력 + 비었을 때 보조 규칙
-    let materialCandidate = extractLine(/소재\s*[:：]\s*(.+)/i, materialOnly) || (materialOnly || '').trim();
-    if (!materialCandidate) {
-        materialCandidate = inferMaterialFromContext(updated, transcript, analysisText, sentences);
+    // 소재 보정: 비었을 때 추론
+    if (!updated.material) {
+        updated.material = inferMaterialFromContext(updated, transcript, '', sentences) || '';
     }
-    updated.material = materialCandidate || updated.material || '';
 
     return { updated, raw: { categoriesText, analysisText, dopamineGraph, transcript } };
+}
+
+function buildCombinedPrompt(title) {
+    return (
+`아래 제공된 "제목"과 "자막"을 분석하여 JSON만 출력하세요. 다른 설명/머리말/코드펜스 금지.
+형식: {"material":"...","categories":{"kr":["대","중","소"],"en":["Main","Sub","Micro"],"cn":["大","中","小"]},"keywords":{"ko":[".."],"en":[".."],"zh":[".."]},"hooking":"...","narrative":"기:.. | 승:.. | 전:.. | 결:.."}
+제목: ${title}
+자막은 캐시에 있습니다. 핵심만 간결히 요약해 JSON 값으로 채우세요.`);
+}
+
+function parseCombinedJson(text) {
+    try {
+        const m = String(text || '').match(/\{[\s\S]*\}/);
+        if (!m) return {};
+        const obj = JSON.parse(m[0]);
+        // 정규화
+        const norm = (arr) => Array.isArray(arr) ? arr.map(x => String(x).trim()).filter(Boolean) : [];
+        if (obj?.keywords) {
+            obj.keywords.ko = norm(obj.keywords.ko);
+            obj.keywords.en = norm(obj.keywords.en);
+            obj.keywords.zh = norm(obj.keywords.zh || obj.keywords.cn);
+        }
+        if (obj?.categories) {
+            const c = obj.categories;
+            c.kr = norm(c.kr);
+            c.en = norm(c.en);
+            c.cn = norm(c.cn);
+        }
+        obj.material = String(obj.material || '').slice(0, 120);
+        obj.hooking = String(obj.hooking || '').slice(0, 160);
+        obj.narrative = String(obj.narrative || '').slice(0, 220);
+        return obj;
+    } catch { return {}; }
+}
+
+function estimateDopamineLocal(sentence) {
+    const s = String(sentence || '').toLowerCase();
+    const strong = ['충격', '반전', '경악', '미친', '대폭', '폭로', '소름', '!', '?'];
+    let score = 3;
+    for (const k of strong) { if (s.includes(k)) { score += 5; break; } }
+    score = Math.max(1, Math.min(10, score));
+    return score;
 }
 
 function extractHookFromAnalysis(analysisText) {
@@ -985,6 +1072,13 @@ async function runAnalysisForIds(ids) {
             const snap = await getDoc(ref);
             if (!snap.exists()) { failed++; continue; }
             const video = { id, ...snap.data() };
+            // 증분 업데이트: 이미 핵심 필드가 채워진 경우 스킵
+            if (video.analysis_full && Array.isArray(video.keywords_ko) && video.keywords_ko.length && Array.isArray(video.dopamine_graph) && video.dopamine_graph.length) {
+                appendAnalysisLog(`(${id}) 이미 분석됨 — 스킵`);
+                done++;
+                updateAnalysisProgress(done, ids.length, `스킵: ${video.title || id}`);
+                continue;
+            }
             appendAnalysisLog(`(${id}) 분석 시작`);
             const { updated } = await analyzeOneVideo(video);
             const payload = { ...updated };
@@ -1210,11 +1304,27 @@ uploadBtn.addEventListener('click', () => {
 });
 
 async function processDataAndUpload(data) {
-    uploadStatus.textContent = '데이터 등록 중...';
-    const uploadBatch = writeBatch(db);
-    let count = 0;
+    uploadStatus.textContent = '변경사항 분석 중...';
+
+    // 1) 기존 해시 맵 로드 (한 번의 전체 읽기)
+    const existingHashes = new Map(); // hash -> docId
+    try {
+        const snap = await getDocs(collection(db, 'videos'));
+        snap.docs.forEach(d => {
+            const h = d.data()?.hash;
+            if (h) existingHashes.set(h, d.id);
+        });
+    } catch (e) {
+        console.error('기존 데이터 로드 실패', e);
+    }
+
+    // 2) 신규/업데이트 분리
+    const toCreate = []; // { id, data }
+    const toUpdate = []; // { id, data }
+
     data.forEach(row => {
         if (!row.Title || !row['YouTube URL']) return;
+        const computedHash = String(row.Hash || stableHash(String(row['YouTube URL'] || row.Title))).trim();
         const videoData = {
             thumbnail: row.Thumbnail || '',
             title: row.Title || '',
@@ -1224,29 +1334,75 @@ async function processDataAndUpload(data) {
             date: row.Date || '',
             subscribers: row.Subscribers || '',
             subscribers_numeric: Number(row.Subscribers_numeric) || 0,
-            hash: row.Hash || '',
+            hash: computedHash,
             youtube_url: row['YouTube URL'] || '',
             group_name: row.group_name || '',
-            // 템플릿 유형만 엑셀에서 유지
-            template_type: row['템플릿 유형'] || ''
-            // 아래 필드들은 엑셀에서 받지 않고, Gemini 분석으로 채웁니다
-            // material, hooking, narrative_structure,
-            // kr_category_large/medium/small,
-            // en_category_main/sub, en_micro_topic,
-            // cn_category_large/medium/small,
-            // source_type
+            template_type: row['템플릿 유형'] || '',
+            last_modified: Date.now()
         };
-        const docId = row.Hash || row.Title.replace(/[^a-zA-Z0-9]/g, '');
-        uploadBatch.set(doc(db, 'videos', docId), videoData);
-        count++;
+        if (existingHashes.has(computedHash)) {
+            toUpdate.push({ id: existingHashes.get(computedHash), data: videoData });
+        } else {
+            toCreate.push({ id: computedHash, data: videoData });
+        }
     });
-    await uploadBatch.commit();
-    uploadStatus.textContent = `${count}개의 데이터 추가/업데이트 완료!`;
+
+    uploadStatus.textContent = `신규 ${toCreate.length}개, 업데이트 ${toUpdate.length}개 처리 중...`;
+
+    const BATCH_SIZE = 500;
+    let processed = 0;
+
+    // 3) 신규 생성 배치
+    for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = toCreate.slice(i, i + BATCH_SIZE);
+        chunk.forEach(item => {
+            batch.set(doc(db, 'videos', item.id), item.data);
+        });
+        await batch.commit();
+        processed += chunk.length;
+        uploadStatus.textContent = `처리 중(신규): ${processed}/${toCreate.length + toUpdate.length}`;
+    }
+
+    // 4) 업데이트 배치 (변경 필드만)
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = toUpdate.slice(i, i + BATCH_SIZE);
+        chunk.forEach(item => {
+            batch.update(doc(db, 'videos', item.id), item.data);
+        });
+        await batch.commit();
+        processed += chunk.length;
+        uploadStatus.textContent = `처리 중(업데이트): ${processed}/${toCreate.length + toUpdate.length}`;
+    }
+
+    uploadStatus.textContent = `완료: 신규 ${toCreate.length}, 업데이트 ${toUpdate.length}`;
     uploadStatus.style.color = 'green';
+
+    // 5) 정적 JSON 생성 → Firebase Storage 업로드 (CDN 서빙)
+    try {
+        const allSnap = await getDocs(collection(db, 'videos'));
+        const allData = allSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const jsonBlob = new Blob([JSON.stringify(allData)], { type: 'application/json' });
+        const fileRef = storageRef(storage, 'public/videos.json');
+        await uploadBytes(fileRef, jsonBlob, { contentType: 'application/json' });
+        const url = await getDownloadURL(fileRef);
+        console.log('정적 JSON 업로드 완료:', url);
+        // 인덱스 갱신 시각 저장(옵션): system/settings.lastBuild
+        try {
+            await updateDoc(doc(db, 'system', 'settings'), { lastBuild: Date.now(), videosJsonUrl: url });
+        } catch {}
+    } catch (e) {
+        console.warn('정적 JSON 업로드 실패(무시 가능):', e?.message || e);
+    }
+
     selectedFile = null;
     fileNameDisplay.textContent = '';
     fileNameDisplay.classList.remove('active');
     fetchAndDisplayData();
 }
 
-
+function stableHash(str) {
+    let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
+    return Math.abs(h).toString(36);
+}
