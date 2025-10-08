@@ -198,6 +198,8 @@ async function setCached(data) {
 
 async function fetchVideos() {
     try {
+        // 글로벌 스피너 on
+        try { document.getElementById('global-spinner')?.classList.remove('hidden'); } catch {}
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
         // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로). 로컬 렌더 후에도 계속 page 로드 가능하게 hasMore 유지
         try {
@@ -237,7 +239,11 @@ async function fetchVideos() {
     } catch (error) {
         console.error('Error fetching videos: ', error);
         ensureTableSkeleton('video');
-        if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="error-message">데이터를 불러오는 데 실패했습니다. Firebase 설정을 확인해주세요.</td></tr>';
+        if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="error-message">데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도하세요.</td></tr>';
+    }
+    finally {
+        // 글로벌 스피너 off
+        try { document.getElementById('global-spinner')?.classList.add('hidden'); } catch {}
     }
 }
 
