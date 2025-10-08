@@ -472,36 +472,9 @@ function getTotalPages() {
 }
 
 function renderPagination() {
+    // 무한 스크롤로 대체: 페이지네이션 UI 제거
     if (!paginationContainer) return;
     paginationContainer.innerHTML = '';
-    const totalPages = getTotalPages();
-    if (totalPages <= 1) return;
-
-    const changePage = (newPage) => {
-        currentPage = newPage;
-        renderCurrentView();
-        if (videoTableContainer) videoTableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-
-    const prevButton = document.createElement('button');
-    prevButton.textContent = '이전';
-    prevButton.className = 'pagination-btn';
-    prevButton.disabled = currentPage === 1;
-    prevButton.addEventListener('click', () => currentPage > 1 && changePage(currentPage - 1));
-
-    const nextButton = document.createElement('button');
-    nextButton.textContent = '다음';
-    nextButton.className = 'pagination-btn';
-    nextButton.disabled = currentPage === totalPages;
-    nextButton.addEventListener('click', () => currentPage < totalPages && changePage(currentPage + 1));
-    
-    const pageInfo = document.createElement('span');
-    pageInfo.className = 'page-info';
-    pageInfo.textContent = `${currentPage} / ${totalPages}`;
-
-    paginationContainer.appendChild(prevButton);
-    paginationContainer.appendChild(pageInfo);
-    paginationContainer.appendChild(nextButton);
 }
 
 // --------- 이벤트 ---------
