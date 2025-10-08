@@ -155,7 +155,7 @@ function ensureTableSkeleton(mode) {
             <thead>
                 <tr>
                     <th>#</th><th>대표 썸네일</th><th>채널</th><th>영상 수</th>
-                    <th>현재 조회수 합</th><th>평균 증가율</th><th>영상들</th>
+                    <th>현재 조회수 합</th><th>평균 증가율</th><th>대표영상</th>
                 </tr>
             </thead>
             <tbody id="video-table-body"></tbody>
@@ -683,12 +683,11 @@ document.addEventListener('click', (e) => {
         renderPagination();
         return;
     }
-    // 대표 영상 버튼: 알림창으로 간단 정보
+    // 대표 영상 버튼: 바로 상세 페이지 열기
     const openBtn = e.target.closest('.open-details');
     if (openBtn) {
         const repId = openBtn.getAttribute('data-rep');
         if (repId) {
-            alert('대표 영상 상세로 이동합니다.');
             window.open(`details.html?id=${encodeURIComponent(repId)}`, '_blank');
         }
         return;
