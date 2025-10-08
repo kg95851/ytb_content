@@ -197,6 +197,7 @@ async function setCached(data) {
 }
 
 async function fetchVideos() {
+    let loadedOk = false;
     try {
         // 글로벌 스피너 on
         try { document.getElementById('global-spinner')?.classList.remove('hidden'); } catch {}
@@ -210,6 +211,7 @@ async function fetchVideos() {
                 filterAndRender();
                 hasMore = true;
                 updateLoadMoreVisibility();
+                loadedOk = true;
                 return;
             }
         } catch {}
@@ -222,6 +224,7 @@ async function fetchVideos() {
             filterAndRender();
             // 백그라운드 업데이트 확인
             checkForUpdates(cached.timestamp).catch(()=>{});
+            loadedOk = true;
             return;
         }
 
@@ -236,14 +239,16 @@ async function fetchVideos() {
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
+        loadedOk = true;
     } catch (error) {
         console.error('Error fetching videos: ', error);
-        ensureTableSkeleton('video');
-        if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="error-message">데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도하세요.</td></tr>';
+        // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
     }
     finally {
         // 글로벌 스피너 off
-        try { document.getElementById('global-spinner')?.classList.add('hidden'); } catch {}
+        if (loadedOk) {
+            try { document.getElementById('global-spinner')?.classList.add('hidden'); } catch {}
+        }
     }
 }
 
