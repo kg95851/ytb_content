@@ -22,7 +22,10 @@ const statVideosSub = document.getElementById('stat-videos-sub');
 const toggleStatsChip = document.getElementById('toggle-stats-chip');
 const statsGrid = document.getElementById('stats-grid');
 // 페이지 크기 UI 제거. 내부 배치 크기만 사용
-const PAGE_BATCH = 100;
+const PAGE_BATCH = 100;              // 화면 렌더링용 배치(정렬/표시 로직 유지)
+const DB_FETCH_BATCH = 1000;         // Supabase 요청당 최대 1000 권장
+const DB_CONCURRENCY = 4;            // 병렬 요청 개수
+const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드
 
 // 상태
 let allVideos = [];
@@ -226,15 +229,19 @@ async function fetchVideos() {
             return;
         }
 
-        const { data, error } = await supabase
-            .from('videos')
-            .select('*', { count: 'exact' })
-            .order('date', { ascending: false })
-            .range(0, PAGE_BATCH - 1);
-        if (error) throw error;
-        // 중복 로딩 방지: 처음 로드 시 반드시 초기화
-        allVideos = Array.isArray(data) ? data : [];
-        hasMore = (data?.length || 0) === PAGE_BATCH;
+        if (FETCH_ALL_FROM_DB) {
+            allVideos = await fetchAllFromSupabase();
+            hasMore = false;
+        } else {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*', { count: 'exact' })
+                .order('date', { ascending: false })
+                .range(0, PAGE_BATCH - 1);
+            if (error) throw error;
+            allVideos = Array.isArray(data) ? data : [];
+            hasMore = (data?.length || 0) === PAGE_BATCH;
+        }
         await setCached(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
@@ -244,6 +251,66 @@ async function fetchVideos() {
         // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
     }
     finally {}
+}
+
+// Supabase에서 전량(14k) 로드: 1000개 단위 병렬 페이징
+async function fetchAllFromSupabase() {
+    // 1) 총 개수 조회(헤더만)
+    let total = 0;
+    try {
+        const { count, error: cntErr } = await supabase
+            .from('videos')
+            .select('id', { count: 'exact', head: true });
+        if (!cntErr && typeof count === 'number') total = count;
+    } catch {}
+
+    const out = [];
+    // 2) 총 개수가 없으면 페이지를 모를 때 until-exhaust 방식으로 0..,1000.. 반복
+    if (!total || total <= 0) {
+        let offset = 0;
+        while (true) {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*')
+                .order('date', { ascending: false })
+                .range(offset, offset + DB_FETCH_BATCH - 1);
+            if (error) break;
+            const batch = Array.isArray(data) ? data : [];
+            if (!batch.length) break;
+            out.push(...batch);
+            if (batch.length < DB_FETCH_BATCH) break;
+            offset += DB_FETCH_BATCH;
+        }
+        return dedupeById(out);
+    }
+
+    // 3) 총 개수 기반으로 병렬 페치
+    const ranges = [];
+    for (let start = 0; start < total; start += DB_FETCH_BATCH) {
+        ranges.push([start, Math.min(start + DB_FETCH_BATCH - 1, total - 1)]);
+    }
+    // 병렬 제한
+    const results = [];
+    for (let i = 0; i < ranges.length; i += DB_CONCURRENCY) {
+        const slice = ranges.slice(i, i + DB_CONCURRENCY);
+        const chunk = await Promise.all(slice.map(async ([from, to]) => {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*')
+                .order('date', { ascending: false })
+                .range(from, to);
+            if (error) return [];
+            return Array.isArray(data) ? data : [];
+        }));
+        chunk.forEach(arr => results.push(...arr));
+    }
+    return dedupeById(results);
+}
+
+function dedupeById(rows) {
+    const map = new Map();
+    for (const r of rows) { if (r && r.id) map.set(r.id, r); }
+    return Array.from(map.values());
 }
 
 async function loadNextPage() {
