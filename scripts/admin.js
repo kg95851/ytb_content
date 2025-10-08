@@ -95,6 +95,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (loginDebug) loginDebug.textContent += `[signin] user: ${data?.user?.id || 'none'}\n`;
+    // 임시 강제 전환(테스트용)
+    loginView.classList.add('hidden');
+    adminPanel.classList.remove('hidden');
   } catch (err) {
     const msg = (err?.message || err || '').toString();
     document.getElementById('login-error').textContent = '로그인 실패: ' + msg;
@@ -108,7 +111,11 @@ logoutBtn.addEventListener('click', async () => {
   await refreshAuthUI();
 });
 
-supabase.auth.onAuthStateChange(() => refreshAuthUI());
+supabase.auth.onAuthStateChange((e, s) => {
+  const d = document.getElementById('login-debug');
+  if (d) { d.style.display = 'block'; d.textContent += `[auth] ${e} session=${!!s?.session}\n`; }
+  refreshAuthUI();
+});
 window.addEventListener('DOMContentLoaded', () => {
   // 기본 예약 시간: +30분
   if (scheduleTimeInput) {
