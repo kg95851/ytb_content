@@ -95,9 +95,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (loginDebug) loginDebug.textContent += `[signin] user: ${data?.user?.id || 'none'}\n`;
-    // 임시 강제 전환(테스트용)
-    loginView.classList.add('hidden');
-    adminPanel.classList.remove('hidden');
+    // 세션 전파 폴링(100~300ms 대기, 최대 3회)
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 120));
+      try {
+        const probe2 = await supabase.auth.getSession();
+        if (loginDebug) loginDebug.textContent += `[probe${i+1}] session: ${probe2?.data?.session ? 'present' : 'none'}\n`;
+        if (probe2?.data?.session) break;
+      } catch {}
+    }
   } catch (err) {
     const msg = (err?.message || err || '').toString();
     document.getElementById('login-error').textContent = '로그인 실패: ' + msg;
