@@ -22,16 +22,17 @@ const statVideosSub = document.getElementById('stat-videos-sub');
 const toggleStatsChip = document.getElementById('toggle-stats-chip');
 const statsGrid = document.getElementById('stats-grid');
 // 페이지 크기 UI 제거. 내부 배치 크기만 사용
-const PAGE_BATCH = 100;              // 화면 렌더링용 배치(정렬/표시 로직 유지)
+const PAGE_BATCH = 200;              // 페이지 표시 200개
 const DB_FETCH_BATCH = 1000;         // Supabase 요청당 최대 1000 권장
 const DB_CONCURRENCY = 4;            // 병렬 요청 개수
-const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드
+const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
 
 // 상태
 let allVideos = [];
 let filteredVideos = [];
 // 페이지 개념 없이 연속 표시. 요청 배치는 PAGE_BATCH로 처리
 let viewMode = 'video'; // 'channel'
+let currentPage = 1;     // 1-based 페이지 인덱스
 let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
 
 // 페이지네이션 쿼리 상태
@@ -414,12 +415,18 @@ function renderVideoView() {
                 return dateB - dateA;
     });
 
-    if (!rows.length) {
+    const total = rows.length;
+    if (!total) {
         videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
         return;
     }
 
-    const html = rows.map((r, idx) => {
+    // 현재 페이지 슬라이스
+    const startIndex = (currentPage - 1) * PAGE_BATCH;
+    const endIndex = startIndex + PAGE_BATCH;
+    const pageRows = rows.slice(startIndex, endIndex);
+
+    const html = pageRows.map((r, idx) => {
         const curr = parseCount(r.views_numeric || r.views || 0);
         const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
         const pct = prev ? ((curr - prev) / prev) * 100 : 0;
@@ -427,8 +434,8 @@ function renderVideoView() {
         const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         const lastChecked = r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-';
         return `
-        <tr>
-            <td>${idx + 1}</td>
+            <tr>
+            <td>${startIndex + idx + 1}</td>
             <td>${thumbnail}</td>
             <td class="table-title"><a href="details.html?id=${r.id}" target="_blank">${r.title || ''}</a></td>
             <td>${r.channel || ''}</td>
@@ -482,19 +489,22 @@ function renderChannelView() {
         return (b.totalRiseAbs - a.totalRiseAbs) || (b.avgRisePct - a.avgRisePct);
     });
 
-    if (!rows.length) {
+    const total = rows.length;
+    if (!total) {
         videoTableBody.innerHTML = '<tr><td colspan="7" class="info-message">조건에 맞는 항목이 없습니다.</td></tr>';
         return;
     }
-
-    const html = rows.map((r, idx) => {
+    const startIndex = (currentPage - 1) * PAGE_BATCH;
+    const endIndex = startIndex + PAGE_BATCH;
+    const pageRows = rows.slice(startIndex, endIndex);
+    const html = pageRows.map((r, idx) => {
         const thumb = r.representative?.thumbnail ? `<img src="${r.representative.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         // 대표 영상이 있다면 상세 페이지로 이동하도록 연결
         const repId = r.representative?.id || '';
         const link = repId ? `details.html?id=${encodeURIComponent(repId)}` : '#';
         return `
             <tr>
-            <td>${idx + 1}</td>
+            <td>${startIndex + idx + 1}</td>
             <td>${thumb}</td>
             <td class="table-title">${r.channel}</td>
             <td>${r.videos.length}</td>
@@ -507,12 +517,29 @@ function renderChannelView() {
     videoTableBody.innerHTML = html;
 }
 
-function getTotalPages() { return 1; }
+function getTotalPages() {
+    const rows = viewMode === 'channel' ? groupByChannel(filteredVideos) : filteredVideos;
+    return Math.max(1, Math.ceil(rows.length / PAGE_BATCH));
+}
 
 function renderPagination() {
-    // 무한 스크롤로 대체: 페이지네이션 UI 제거
     if (!paginationContainer) return;
-    paginationContainer.innerHTML = '';
+    const totalPages = getTotalPages();
+    if (totalPages <= 1) { paginationContainer.innerHTML = ''; return; }
+    const makeBtn = (p) => `<button class="page-btn ${p===currentPage?'active':''}" data-page="${p}">${p}</button>`;
+    const maxShow = 9; // 1 2 3 4 5 6 7 8 9
+    let start = Math.max(1, currentPage - Math.floor(maxShow/2));
+    let end = Math.min(totalPages, start + maxShow - 1);
+    if (end - start + 1 < maxShow) start = Math.max(1, end - maxShow + 1);
+    const parts = [];
+    if (currentPage > 1) parts.push(`<button class="page-btn" data-page="${currentPage-1}">이전</button>`);
+    if (start > 1) parts.push(makeBtn(1));
+    if (start > 2) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+    for (let p = start; p <= end; p++) parts.push(makeBtn(p));
+    if (end < totalPages - 1) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+    if (end < totalPages) parts.push(makeBtn(totalPages));
+    if (currentPage < totalPages) parts.push(`<button class="page-btn" data-page="${currentPage+1}">다음</button>`);
+    paginationContainer.innerHTML = parts.join('');
 }
 
 // --------- 이벤트 ---------
@@ -568,28 +595,14 @@ if (toggleStatsChip && statsGrid) {
 // 페이지당 개수 변경
 // 페이지 크기 UI 제거됨
 
-// "더 보기" 버튼 또는 무한 스크롤 핸들러
-// 무한 스크롤: IntersectionObserver 기반(뷰포트 하단 센티넬)
-let isLoadingNext = false;
-const sentinelEl = document.getElementById('scroll-sentinel');
-if ('IntersectionObserver' in window && sentinelEl) {
-    const io = new IntersectionObserver(async (entries) => {
-        for (const e of entries) {
-            if (e.isIntersecting && hasMore && !isLoadingNext) {
-                isLoadingNext = true;
-                try { await loadNextPage(); } finally { isLoadingNext = false; }
-            }
-        }
-    }, { root: null, rootMargin: '200px 0px 200px 0px', threshold: 0 });
-    io.observe(sentinelEl);
-} else {
-    // 폴백: 스크롤 근접 감지
-    window.addEventListener('scroll', async () => {
-        if (isLoadingNext) return;
-        const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 200;
-        if (nearBottom && hasMore) {
-            isLoadingNext = true;
-            try { await loadNextPage(); } finally { isLoadingNext = false; }
-        }
-    });
-}
+// 페이지네이션 클릭 핸들러
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.page-btn');
+    if (!btn) return;
+    const p = Number(btn.getAttribute('data-page'));
+    if (!isFinite(p) || p < 1) return;
+    currentPage = p;
+    renderCurrentView();
+    renderPagination();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+});
