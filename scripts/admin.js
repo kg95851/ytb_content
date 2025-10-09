@@ -72,6 +72,14 @@ const ytViewsConcInput = document.getElementById('yt-views-conc');
 const ytTranscriptOnlyMissing = document.getElementById('yt-transcript-only-missing');
 const ytViewsOnlyMissing = document.getElementById('yt-views-only-missing');
 const ytViewsExcludeMin = document.getElementById('yt-views-exclude-min');
+const youtubeLogEl = document.getElementById('youtube-log');
+
+function ylog(line) {
+  if (!youtubeLogEl) return;
+  const t = new Date().toLocaleTimeString();
+  youtubeLogEl.textContent += `[${t}] ${line}\n`;
+  youtubeLogEl.scrollTop = youtubeLogEl.scrollHeight;
+}
 
 let currentData = [];
 let adminCurrentPage = 1;
@@ -1028,12 +1036,19 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
-    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) return;
+    const { data: row, error } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
+    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
     const url = row?.youtube_url || '';
-    if (!url) throw new Error('no url');
-    const transcript = await fetchTranscriptByUrl(url);
-    await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+    if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
+    try {
+      const transcript = await fetchTranscriptByUrl(url);
+      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+      ylog(`(${id}) transcript saved (${transcript.length} chars)`);
+    } catch (e) {
+      ylog(`(${id}) transcript error: ${e?.message || e}`);
+      throw e;
+    }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
@@ -1051,20 +1066,29 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
   const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
   const worker = async (id, key) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
-    if (onlyMissing && row?.views_numeric) return;
-    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) return;
+    const { data: row, error } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
+    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
+    if (onlyMissing && row?.views_numeric) { ylog(`(${id}) skip (has views_numeric)`); return; }
+    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) { ylog(`(${id}) skip (recently updated)`); return; }
     const url = row?.youtube_url || '';
     const u = new URL(url);
     let videoId = u.searchParams.get('v') || '';
     if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
     if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
-    if (!videoId) throw new Error('no videoId');
-    const { views: current, likes, comments } = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+    if (!videoId) { ylog(`(${id}) skip (bad youtube_url)`); throw new Error('no videoId'); }
+    let current, likes, comments;
+    try {
+      const stats = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+      current = stats.views; likes = stats.likes; comments = stats.comments;
+    } catch (e) {
+      ylog(`(${id}) stats error: ${e?.message || e}`);
+      throw e;
+    }
     const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
     const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
     if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
-    await supabase.from('videos').update(patch).eq('id', id);
+    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, likes=${likes}, comments=${comments})`); }
+    catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
@@ -1079,12 +1103,19 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   const ids = currentData.map(v => v.id);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
-    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) return;
+    const { data: row, error } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
+    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
     const url = row?.youtube_url || '';
-    if (!url) throw new Error('no url');
-    const transcript = await fetchTranscriptByUrl(url);
-    await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+    if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
+    try {
+      const transcript = await fetchTranscriptByUrl(url);
+      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+      ylog(`(${id}) transcript saved (${transcript.length} chars)`);
+    } catch (e) {
+      ylog(`(${id}) transcript error: ${e?.message || e}`);
+      throw e;
+    }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
@@ -1101,20 +1132,29 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
   const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
   const worker = async (id, key) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
-    if (onlyMissing && row?.views_numeric) return;
-    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) return;
+    const { data: row, error } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
+    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
+    if (onlyMissing && row?.views_numeric) { ylog(`(${id}) skip (has views_numeric)`); return; }
+    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) { ylog(`(${id}) skip (recently updated)`); return; }
     const url = row?.youtube_url || '';
     const u = new URL(url);
     let videoId = u.searchParams.get('v') || '';
     if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
     if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
-    if (!videoId) throw new Error('no videoId');
-    const { views: current, likes, comments } = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+    if (!videoId) { ylog(`(${id}) skip (bad youtube_url)`); throw new Error('no videoId'); }
+    let current, likes, comments;
+    try {
+      const stats = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+      current = stats.views; likes = stats.likes; comments = stats.comments;
+    } catch (e) {
+      ylog(`(${id}) stats error: ${e?.message || e}`);
+      throw e;
+    }
     const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
     const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
     if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
-    await supabase.from('videos').update(patch).eq('id', id);
+    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, likes=${likes}, comments=${comments})`); }
+    catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
