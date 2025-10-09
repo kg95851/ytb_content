@@ -10,13 +10,17 @@ const tabContents = document.querySelectorAll('.tab-content');
 
 // Data management
 const dataTableContainer = document.getElementById('data-table-container');
+const adminPaginationContainer = document.getElementById('admin-pagination-container');
 const dataSearchInput = document.getElementById('data-search-input');
 const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const runAnalysisSelectedBtn = document.getElementById('run-analysis-selected-btn');
 const runAnalysisAllBtn = document.getElementById('run-analysis-all-btn');
 const analysisStatus = document.getElementById('analysis-status');
+const youtubeStatus = document.getElementById('youtube-status');
 const commentCountInput = document.getElementById('comment-count-input');
 const runCommentsSelectedBtn = document.getElementById('run-comments-selected-btn');
+const ytTranscriptSelectedBtn = document.getElementById('yt-transcript-selected-btn');
+const ytViewsSelectedBtn = document.getElementById('yt-views-selected-btn');
 
 // Upload
 const fileDropArea = document.getElementById('file-drop-area');
@@ -61,9 +65,111 @@ const exportJsonBtn = document.getElementById('export-json-btn');
 const exportStatus = document.getElementById('export-status');
 
 let currentData = [];
+let adminCurrentPage = 1;
+const ADMIN_PAGE_SIZE = 200;
 let selectedFile = null;
 let docIdToEdit = null;
 let isBulkDelete = false;
+
+// --------- Admin cache (ETag-like) ---------
+const ADMIN_IDB_DB = 'adminVideosCacheDB';
+const ADMIN_IDB_STORE = 'kv';
+const ADMIN_CACHE_KEY = 'videosCompressed';
+
+async function adminIdbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(ADMIN_IDB_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(ADMIN_IDB_STORE)) db.createObjectStore(ADMIN_IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function adminIdbGet(key) {
+  try {
+    const db = await adminIdbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ADMIN_IDB_STORE, 'readonly');
+      const store = tx.objectStore(ADMIN_IDB_STORE);
+      const r = store.get(key);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+  } catch { return null; }
+}
+
+async function adminIdbSet(key, value) {
+  try {
+    const db = await adminIdbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ADMIN_IDB_STORE, 'readwrite');
+      const store = tx.objectStore(ADMIN_IDB_STORE);
+      const r = store.put(value, key);
+      r.onsuccess = () => resolve(true);
+      r.onerror = () => reject(r.error);
+    });
+  } catch { return false; }
+}
+
+async function adminCompressJSON(data) {
+  const text = JSON.stringify(data);
+  if ('CompressionStream' in window) {
+    const cs = new CompressionStream('gzip');
+    const blob = new Blob([text]);
+    const stream = blob.stream().pipeThrough(cs);
+    const buffer = await new Response(stream).arrayBuffer();
+    return { algo: 'gzip', buffer };
+  }
+  return { algo: 'none', text };
+}
+
+async function adminDecompressJSON(record) {
+  if (!record) return null;
+  if (record.algo === 'gzip' && 'DecompressionStream' in window) {
+    const ds = new DecompressionStream('gzip');
+    const stream = new Blob([record.buffer]).stream().pipeThrough(ds);
+    const text = await new Response(stream).text();
+    return JSON.parse(text);
+  }
+  if (record.text) return JSON.parse(record.text);
+  return null;
+}
+
+async function getAdminCache() {
+  const rec = await adminIdbGet(ADMIN_CACHE_KEY);
+  if (!rec) return null;
+  try {
+    const payload = await adminDecompressJSON(rec.payload);
+    return { version: rec.version, data: payload };
+  } catch { return null; }
+}
+
+async function setAdminCache(version, data) {
+  const payload = await adminCompressJSON(data);
+  await adminIdbSet(ADMIN_CACHE_KEY, { version, payload, savedAt: Date.now() });
+}
+
+function computeVersionFromData(rows) {
+  const total = Array.isArray(rows) ? rows.length : 0;
+  const maxTs = Math.max(...(rows || []).map(r => Number(r.last_modified || 0)).filter(Boolean), 0);
+  return `${total}:${maxTs}`;
+}
+
+async function fetchDatasetVersion() {
+  let total = 0; let newest = 0;
+  try {
+    const { count } = await supabase.from('videos').select('id', { count: 'exact', head: true });
+    if (typeof count === 'number') total = count;
+  } catch {}
+  try {
+    const { data } = await supabase.from('videos').select('last_modified').order('last_modified', { ascending: false }).limit(1);
+    if (Array.isArray(data) && data[0]?.last_modified) newest = Number(data[0].last_modified) || 0;
+  } catch {}
+  return { total, newest, tag: `${total}:${newest}` };
+}
 
 // ---------- Auth (Supabase) ----------
 const loginDebug = document.getElementById('login-debug');
@@ -146,10 +252,62 @@ tabs.addEventListener('click', (e) => {
 async function fetchAndDisplayData() {
   dataTableContainer.innerHTML = '<p class="info-message">데이터 로딩...</p>';
   try {
-    const { data, error } = await supabase.from('videos').select('*').order('date', { ascending: false });
-    if (error) throw error;
-    currentData = Array.isArray(data) ? data : [];
+    // 0) 캐시 버전 확인 및 조건부 로딩
+    const remoteVer = await fetchDatasetVersion();
+    const cached = await getAdminCache();
+    if (cached && cached.version === remoteVer.tag) {
+      currentData = cached.data || [];
+      adminCurrentPage = 1;
+      renderTable(currentData);
+      renderAdminPagination();
+      return;
+    }
+
+    // 전체 카운트
+    let total = remoteVer.total || 0;
+
+    const BATCH = 1000;
+    const CONC = 4;
+    const ranges = [];
+    if (total > 0) {
+      for (let start = 0; start < total; start += BATCH) {
+        ranges.push([start, Math.min(start + BATCH - 1, total - 1)]);
+      }
+    } else {
+      // 총 개수를 못 가져오면 until-exhaust 페치
+      ranges.push([0, BATCH - 1]);
+    }
+
+    const results = [];
+    for (let i = 0; i < ranges.length; i += CONC) {
+      const slice = ranges.slice(i, i + CONC);
+      const chunk = await Promise.all(slice.map(async ([from, to]) => {
+        const { data, error } = await supabase
+          .from('videos')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, to);
+        if (error) return [];
+        return Array.isArray(data) ? data : [];
+      }));
+      chunk.forEach(arr => results.push(...arr));
+      // until-exhaust: 총 개수 미확정이면서 마지막 청크가 꽉 찼으면 다음 범위를 추가
+      if (!total && slice.length && (chunk[chunk.length - 1]?.length === BATCH)) {
+        const lastEnd = ranges[ranges.length - 1][1];
+        ranges.push([lastEnd + 1, lastEnd + BATCH]);
+      }
+    }
+
+    // 중복 제거
+    const map = new Map();
+    for (const r of results) { if (r && r.id) map.set(r.id, r); }
+    currentData = Array.from(map.values());
+    // 캐시 저장: 총개수/최신 last_modified 기반 버전
+    const version = remoteVer.tag || computeVersionFromData(currentData);
+    await setAdminCache(version, currentData);
+    adminCurrentPage = 1;
     renderTable(currentData);
+    renderAdminPagination();
   } catch (e) {
     console.error('fetch error', e);
     dataTableContainer.innerHTML = '<p class="error-message">불러오기 실패</p>';
@@ -163,6 +321,11 @@ function renderTable(rows) {
   }
   const table = document.createElement('table');
   table.className = 'data-table';
+  // 페이지 슬라이스
+  const startIndex = (adminCurrentPage - 1) * ADMIN_PAGE_SIZE;
+  const endIndex = startIndex + ADMIN_PAGE_SIZE;
+  const pageRows = rows.slice(startIndex, endIndex);
+
   table.innerHTML = `
     <thead>
       <tr>
@@ -171,7 +334,7 @@ function renderTable(rows) {
       </tr>
     </thead>
     <tbody>
-      ${rows.map(v => `
+      ${pageRows.map(v => `
         <tr data-id="${v.id}">
           <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
           <td>${v.thumbnail ? `<img class="table-thumbnail" src="${v.thumbnail}">` : ''}</td>
@@ -194,6 +357,26 @@ function renderTable(rows) {
   });
 }
 
+function renderAdminPagination() {
+  if (!adminPaginationContainer) return;
+  const totalPages = Math.max(1, Math.ceil(currentData.length / ADMIN_PAGE_SIZE));
+  if (totalPages <= 1) { adminPaginationContainer.innerHTML = ''; return; }
+  const makeBtn = (p) => `<button class="page-btn ${p===adminCurrentPage?'active':''}" data-admin-page="${p}">${p}</button>`;
+  const maxShow = 9;
+  let start = Math.max(1, adminCurrentPage - Math.floor(maxShow/2));
+  let end = Math.min(totalPages, start + maxShow - 1);
+  if (end - start + 1 < maxShow) start = Math.max(1, end - maxShow + 1);
+  const parts = [];
+  if (adminCurrentPage > 1) parts.push(`<button class="page-btn" data-admin-page="${adminCurrentPage-1}">이전</button>`);
+  if (start > 1) parts.push(makeBtn(1));
+  if (start > 2) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+  for (let p = start; p <= end; p++) parts.push(makeBtn(p));
+  if (end < totalPages - 1) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
+  if (end < totalPages) parts.push(makeBtn(totalPages));
+  if (adminCurrentPage < totalPages) parts.push(`<button class="page-btn" data-admin-page="${adminCurrentPage+1}">다음</button>`);
+  adminPaginationContainer.innerHTML = parts.join('');
+}
+
 dataTableContainer.addEventListener('click', (e) => {
   const btnEdit = e.target.closest('.btn-edit');
   const btnDel = e.target.closest('.single-delete-btn');
@@ -201,10 +384,26 @@ dataTableContainer.addEventListener('click', (e) => {
   if (btnDel) openConfirmModal(btnDel.getAttribute('data-id'), false);
 });
 
+// 페이지네이션 버튼 클릭
+document.addEventListener('click', (e) => {
+  const pageBtn = e.target.closest('.page-btn');
+  if (!pageBtn) return;
+  const p = Number(pageBtn.getAttribute('data-admin-page'));
+  if (!isFinite(p)) return;
+  adminCurrentPage = p;
+  const query = String(dataSearchInput?.value || '').toLowerCase();
+  const rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
+  renderTable(rows);
+  renderAdminPagination();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
 dataSearchInput?.addEventListener('input', (e) => {
   const t = String(e.target.value || '').toLowerCase();
   const filtered = currentData.filter(v => (v.title || '').toLowerCase().includes(t) || (v.channel || '').toLowerCase().includes(t));
+  adminCurrentPage = 1;
   renderTable(filtered);
+  renderAdminPagination();
 });
 
 // ---------- CRUD: Edit ----------
@@ -630,6 +829,20 @@ async function fetchTranscriptByUrl(youtubeUrl) {
   return data.text || '';
 }
 
+// --- YouTube API helpers (분리된 기능)
+async function fetchYoutubeViews(videoId, apiKey) {
+  const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+  url.searchParams.set('part', 'statistics');
+  url.searchParams.set('id', videoId);
+  url.searchParams.set('key', apiKey);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('views api http ' + res.status);
+  const data = await res.json();
+  const item = (data.items || [])[0];
+  const views = Number(item?.statistics?.viewCount || 0);
+  return views;
+}
+
 function estimateDopamineLocal(sentence) {
   const s = String(sentence || '').toLowerCase();
   let score = 3;
@@ -729,6 +942,55 @@ runCommentsSelectedBtn?.addEventListener('click', async () => {
     } catch (e) { appendAnalysisLog(`(${id}) 댓글 오류: ${e?.message || e}`); }
   }
   analysisStatus.textContent = `댓글 수집 완료`;
+});
+
+// --- 분리된 버튼: 선택 대본 추출 (YouTube API 경유, Gemini 미사용)
+ytTranscriptSelectedBtn?.addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+  if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
+  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  let done = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      const { data: row } = await supabase.from('videos').select('youtube_url,title').eq('id', id).single();
+      const url = row?.youtube_url || '';
+      if (!url) { fail++; continue; }
+      const transcript = await fetchTranscriptByUrl(url);
+      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+      done++; youtubeStatus.textContent = `진행중... ${done}/${ids.length}`;
+    } catch (e) { fail++; }
+  }
+  youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${fail}`; youtubeStatus.style.color = fail ? 'orange' : 'green';
+  await fetchAndDisplayData();
+});
+
+// --- 분리된 버튼: 선택 조회수 갱신 (YouTube Data API)
+ytViewsSelectedBtn?.addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+  if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
+  const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
+  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  let done = 0, fail = 0, keyIndex = 0;
+  for (const id of ids) {
+    try {
+      const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
+      const url = row?.youtube_url || '';
+      const u = new URL(url);
+      let videoId = u.searchParams.get('v') || '';
+      if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
+      if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
+      if (!videoId) { fail++; continue; }
+      const apiKey = keys[keyIndex++ % keys.length];
+      const current = await fetchYoutubeViews(videoId, apiKey);
+      const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
+      const patch = { views_numeric: current, views_last_checked_at: Date.now() };
+      if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
+      await supabase.from('videos').update(patch).eq('id', id);
+      done++; youtubeStatus.textContent = `진행중... ${done}/${ids.length}`;
+    } catch (e) { fail++; }
+  }
+  youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${fail}`; youtubeStatus.style.color = fail ? 'orange' : 'green';
+  await fetchAndDisplayData();
 });
 
 // ---------- Settings (local) ----------
