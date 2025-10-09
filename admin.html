@@ -74,8 +74,20 @@
                             <input type="number" id="yt-transcript-conc" value="6" min="1" max="20" style="width:70px; margin-left:.25rem;">
                         </label>
                         <label class="option" style="margin-left:.25rem;">
+                            미분석만
+                            <input type="checkbox" id="yt-transcript-only-missing" checked style="margin-left:.25rem;">
+                        </label>
+                        <label class="option" style="margin-left:.25rem;">
                             동시성
                             <input type="number" id="yt-views-conc" value="10" min="1" max="30" style="width:70px; margin-left:.25rem;">
+                        </label>
+                        <label class="option" style="margin-left:.25rem;">
+                            누락만
+                            <input type="checkbox" id="yt-views-only-missing" style="margin-left:.25rem;">
+                        </label>
+                        <label class="option" style="margin-left:.25rem;">
+                            최근 제외(분)
+                            <input type="number" id="yt-views-exclude-min" value="0" min="0" max="10080" style="width:80px; margin-left:.25rem;">
                         </label>
                         <button id="yt-transcript-all-btn" class="btn">전체 대본 추출 (YouTube)</button>
                         <button id="yt-views-all-btn" class="btn">전체 조회수 갱신 (YouTube)</button>
