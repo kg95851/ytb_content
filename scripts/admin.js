@@ -327,6 +327,19 @@ async function processDataAndUpload(data) {
   uploadStatus.textContent = '변경사항 분석 중...';
 
   // 1) 입력 정규화
+  const isEmptyStringValue = (v) => {
+    if (v == null) return true;
+    const s = String(v).trim().toLowerCase();
+    return s === '' || s === '-' || s === 'n/a' || s === 'na' || s === 'null' || s === 'undefined' || s === '이미지 없음';
+  };
+  const isEmptyNumericValue = (v) => {
+    if (v == null) return true;
+    const s = String(v).trim().toLowerCase();
+    if (s === '' || s === 'null' || s === 'undefined' || s === 'nan') return true;
+    const digits = s.replace(/[^0-9]/g, '');
+    return digits === '' || digits === '0';
+  };
+
   const incoming = [];
   for (const row of data) {
     const hasAny = row && (row.Title || row.title || row['YouTube URL'] || row.youtube_url || row.Hash);
@@ -389,18 +402,17 @@ async function processDataAndUpload(data) {
       // 기존: 누락된 필드만 채우기 (null/빈 문자열만 누락으로 간주)
       const upd = { id: exist.id };
       let has = false;
-      const isEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
-      if (item.thumbnail && isEmpty(exist.thumbnail)) { upd.thumbnail = item.thumbnail; has = true; }
-      if (item.title && isEmpty(exist.title)) { upd.title = item.title; has = true; }
-      if (item.views && isEmpty(exist.views)) { upd.views = item.views; has = true; }
-      if (item.views_numeric != null && (exist.views_numeric == null || exist.views_numeric === '')) { upd.views_numeric = toBigIntSafe(item.views_numeric); has = true; }
-      if (item.channel && isEmpty(exist.channel)) { upd.channel = item.channel; has = true; }
-      if (item.date && isEmpty(exist.date)) { upd.date = item.date; has = true; }
-      if (item.subscribers && isEmpty(exist.subscribers)) { upd.subscribers = item.subscribers; has = true; }
-      if (item.subscribers_numeric != null && (exist.subscribers_numeric == null || exist.subscribers_numeric === '')) { upd.subscribers_numeric = toBigIntSafe(item.subscribers_numeric); has = true; }
-      if (item.youtube_url && isEmpty(exist.youtube_url)) { upd.youtube_url = item.youtube_url; has = true; }
-      if (item.group_name && isEmpty(exist.group_name)) { upd.group_name = item.group_name; has = true; }
-      if (item.template_type && isEmpty(exist.template_type)) { upd.template_type = item.template_type; has = true; }
+      if (item.thumbnail && isEmptyStringValue(exist.thumbnail)) { upd.thumbnail = item.thumbnail; has = true; }
+      if (item.title && isEmptyStringValue(exist.title)) { upd.title = item.title; has = true; }
+      if (item.views && isEmptyStringValue(exist.views)) { upd.views = item.views; has = true; }
+      if (item.views_numeric != null && isEmptyNumericValue(exist.views_numeric)) { upd.views_numeric = toBigIntSafe(item.views_numeric); has = true; }
+      if (item.channel && isEmptyStringValue(exist.channel)) { upd.channel = item.channel; has = true; }
+      if (item.date && isEmptyStringValue(exist.date)) { upd.date = item.date; has = true; }
+      if (item.subscribers && isEmptyStringValue(exist.subscribers)) { upd.subscribers = item.subscribers; has = true; }
+      if (item.subscribers_numeric != null && isEmptyNumericValue(exist.subscribers_numeric)) { upd.subscribers_numeric = toBigIntSafe(item.subscribers_numeric); has = true; }
+      if (item.youtube_url && isEmptyStringValue(exist.youtube_url)) { upd.youtube_url = item.youtube_url; has = true; }
+      if (item.group_name && isEmptyStringValue(exist.group_name)) { upd.group_name = item.group_name; has = true; }
+      if (item.template_type && isEmptyStringValue(exist.template_type)) { upd.template_type = item.template_type; has = true; }
       if (has) { upd.last_modified = now; toUpdate.push(upd); }
     }
   }
