@@ -83,23 +83,18 @@ const renderDetails = (video) => {
             </div>
             <div class="details-info">
                 <h1>${video.title || '제목 없음'}</h1>
-                <div class="details-meta-bar">
+                    <div class="details-meta-bar">
                     <div class="meta-item"><strong>채널</strong> <span>${video.channel || '없음'}</span></div>
                     <div class="meta-item"><strong>게시일</strong> <span>${video.date || '없음'}</span></div>
                     <div class="meta-item"><strong>조회수</strong> <span>${(video.views_numeric || 0).toLocaleString()}회</span></div>
                     <div class="meta-item"><strong>구독자</strong> <span>${(video.subscribers_numeric || 0).toLocaleString()}명</span></div>
-                    <div class="meta-item"><strong>폼 유형</strong> <span class="group-tag">${video.group_name || '없음'}</span></div>
                 </div>
                 
-                <h2>상세 분석 정보</h2>
+                <h2>상세 구성</h2>
                 <div class="details-grid">
                     ${renderDetailItem('소재', video.material)}
-                    ${renderDetailItem('템플릿 유형', video.template_type)}
                     ${renderDetailItem('후킹 요소', video.hooking)}
                     ${renderDetailItem('기승전결 구조', video.narrative_structure)}
-                    ${renderDetailItem('한국 카테고리', kr_categories)}
-                    ${renderDetailItem('영문 카테고리', en_categories)}
-                    ${renderDetailItem('중국 카테고리', cn_categories)}
                 </div>
                 ${(kwKO.length || kwEN.length || kwZH.length) ? `
                 <h2 style="margin-top:1.5rem;">검색 키워드</h2>
