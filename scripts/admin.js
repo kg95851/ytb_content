@@ -21,6 +21,8 @@ const commentCountInput = document.getElementById('comment-count-input');
 const runCommentsSelectedBtn = document.getElementById('run-comments-selected-btn');
 const ytTranscriptSelectedBtn = document.getElementById('yt-transcript-selected-btn');
 const ytViewsSelectedBtn = document.getElementById('yt-views-selected-btn');
+const ytTranscriptAllBtn = document.getElementById('yt-transcript-all-btn');
+const ytViewsAllBtn = document.getElementById('yt-views-all-btn');
 
 // Upload
 const fileDropArea = document.getElementById('file-drop-area');
@@ -63,6 +65,9 @@ const analysisLogEl = document.getElementById('analysis-log');
 // Export JSON
 const exportJsonBtn = document.getElementById('export-json-btn');
 const exportStatus = document.getElementById('export-status');
+// Concurrency inputs
+const ytTranscriptConcInput = document.getElementById('yt-transcript-conc');
+const ytViewsConcInput = document.getElementById('yt-views-conc');
 
 let currentData = [];
 let adminCurrentPage = 1;
@@ -843,6 +848,74 @@ async function fetchYoutubeViews(videoId, apiKey) {
   return views;
 }
 
+// 좋아요/댓글수 동시 갱신
+async function fetchYoutubeStats(videoId, apiKey) {
+  const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+  url.searchParams.set('part', 'statistics');
+  url.searchParams.set('id', videoId);
+  url.searchParams.set('key', apiKey);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('stats api http ' + res.status);
+  const data = await res.json();
+  const item = (data.items || [])[0] || { statistics: {} };
+  const stats = item.statistics || {};
+  return {
+    views: Number(stats.viewCount || 0),
+    likes: Number(stats.likeCount || 0),
+    comments: Number(stats.commentCount || 0)
+  };
+}
+
+// 지수 백오프 재시도 래퍼
+async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
+  let attempt = 0;
+  while (true) {
+    try { return await fn(); }
+    catch (e) {
+      attempt++;
+      if (attempt > retries) throw e;
+      const delay = Math.round(baseDelayMs * Math.pow(2, attempt - 1) * (1 + Math.random()*0.2));
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
+// --- 공용 처리기: 병렬 실행 + 키 로테이션 ---
+function getStoredKeysForRotation() {
+  const keys = getStoredYoutubeApiKeys();
+  return keys.filter(k => !!k);
+}
+
+async function processInBatches(ids, worker, { concurrency = 6, onProgress } = {}) {
+  let i = 0; let inFlight = 0; let done = 0; let failed = 0; let nextKeyIndex = 0; let startedAt = Date.now();
+  const keys = getStoredKeysForRotation();
+  const results = [];
+  return await new Promise((resolve) => {
+    const pump = () => {
+      if (done + failed >= ids.length && inFlight === 0) return resolve({ done, failed, results });
+      while (inFlight < concurrency && i < ids.length) {
+        const id = ids[i++];
+        const key = keys.length ? keys[nextKeyIndex++ % keys.length] : '';
+        inFlight++;
+        worker(id, key).then((r) => { results.push(r); done++; }).catch(() => { failed++; }).finally(() => {
+          inFlight--;
+          if (typeof onProgress === 'function') {
+            const processed = done + failed;
+            const pct = Math.round((processed / ids.length) * 100);
+            const elapsed = (Date.now() - startedAt) / 1000;
+            const rate = processed / Math.max(1, elapsed);
+            const remain = ids.length - processed;
+            const etaSec = Math.round(remain / Math.max(0.001, rate));
+            onProgress({ processed, total: ids.length, pct, etaSec });
+          }
+          pump();
+        });
+      }
+    };
+    pump();
+  });
+}
+
 function estimateDopamineLocal(sentence) {
   const s = String(sentence || '').toLowerCase();
   let score = 3;
@@ -949,18 +1022,16 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
-  let done = 0, fail = 0;
-  for (const id of ids) {
-    try {
-      const { data: row } = await supabase.from('videos').select('youtube_url,title').eq('id', id).single();
-      const url = row?.youtube_url || '';
-      if (!url) { fail++; continue; }
-      const transcript = await fetchTranscriptByUrl(url);
-      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
-      done++; youtubeStatus.textContent = `진행중... ${done}/${ids.length}`;
-    } catch (e) { fail++; }
-  }
-  youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${fail}`; youtubeStatus.style.color = fail ? 'orange' : 'green';
+  const worker = async (id) => {
+    const { data: row } = await supabase.from('videos').select('youtube_url').eq('id', id).single();
+    const url = row?.youtube_url || '';
+    if (!url) throw new Error('no url');
+    const transcript = await fetchTranscriptByUrl(url);
+    await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+  };
+  const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
 
@@ -970,26 +1041,66 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
-  let done = 0, fail = 0, keyIndex = 0;
-  for (const id of ids) {
-    try {
-      const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
-      const url = row?.youtube_url || '';
-      const u = new URL(url);
-      let videoId = u.searchParams.get('v') || '';
-      if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
-      if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
-      if (!videoId) { fail++; continue; }
-      const apiKey = keys[keyIndex++ % keys.length];
-      const current = await fetchYoutubeViews(videoId, apiKey);
-      const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
-      const patch = { views_numeric: current, views_last_checked_at: Date.now() };
-      if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
-      await supabase.from('videos').update(patch).eq('id', id);
-      done++; youtubeStatus.textContent = `진행중... ${done}/${ids.length}`;
-    } catch (e) { fail++; }
-  }
-  youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${fail}`; youtubeStatus.style.color = fail ? 'orange' : 'green';
+  const worker = async (id, key) => {
+    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
+    const url = row?.youtube_url || '';
+    const u = new URL(url);
+    let videoId = u.searchParams.get('v') || '';
+    if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
+    if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
+    if (!videoId) throw new Error('no videoId');
+    const { views: current, likes, comments } = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+    const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
+    const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
+    if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
+    await supabase.from('videos').update(patch).eq('id', id);
+  };
+  const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
+  await fetchAndDisplayData();
+});
+
+// --- 전체 처리 버튼들 ---
+ytTranscriptAllBtn?.addEventListener('click', async () => {
+  if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
+  const ids = currentData.map(v => v.id);
+  const worker = async (id) => {
+    const { data: row } = await supabase.from('videos').select('youtube_url').eq('id', id).single();
+    const url = row?.youtube_url || '';
+    if (!url) throw new Error('no url');
+    const transcript = await fetchTranscriptByUrl(url);
+    await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+  };
+  const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
+  await fetchAndDisplayData();
+});
+
+ytViewsAllBtn?.addEventListener('click', async () => {
+  const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
+  if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
+  const ids = currentData.map(v => v.id);
+  const worker = async (id, key) => {
+    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
+    const url = row?.youtube_url || '';
+    const u = new URL(url);
+    let videoId = u.searchParams.get('v') || '';
+    if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
+    if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
+    if (!videoId) throw new Error('no videoId');
+    const { views: current, likes, comments } = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
+    const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
+    const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
+    if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
+    await supabase.from('videos').update(patch).eq('id', id);
+  };
+  const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
 
