@@ -1084,10 +1084,21 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
       ylog(`(${id}) stats error: ${e?.message || e}`);
       throw e;
     }
-    const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
-    const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
-    if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
-    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, likes=${likes}, comments=${comments})`); }
+    const baseline = Number(row?.views_baseline_numeric || 0);
+    const prevCurrent = Number(row?.views_numeric || 0);
+    const prevCheckedAt = Number(row?.views_last_checked_at || 0) || null;
+    const patch = { 
+      views_numeric: current,
+      likes_numeric: likes,
+      comments_total: comments,
+      views_last_checked_at: Date.now()
+    };
+    if (prevCurrent > 0) {
+      patch.views_prev_numeric = prevCurrent;
+      if (prevCheckedAt) patch.views_prev_checked_at = prevCheckedAt;
+    }
+    if (!baseline) patch.views_baseline_numeric = current; // 최초 1회만 베이스라인 세팅
+    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
     catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
@@ -1150,10 +1161,21 @@ ytViewsAllBtn?.addEventListener('click', async () => {
       ylog(`(${id}) stats error: ${e?.message || e}`);
       throw e;
     }
-    const prev = Number(row?.views_numeric || row?.views_baseline_numeric || 0) || 0;
-    const patch = { views_numeric: current, likes_numeric: likes, comments_total: comments, views_last_checked_at: Date.now() };
-    if (!row?.views_baseline_numeric) patch.views_baseline_numeric = prev || current;
-    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, likes=${likes}, comments=${comments})`); }
+    const baseline = Number(row?.views_baseline_numeric || 0);
+    const prevCurrent = Number(row?.views_numeric || 0);
+    const prevCheckedAt = Number(row?.views_last_checked_at || 0) || null;
+    const patch = { 
+      views_numeric: current,
+      likes_numeric: likes,
+      comments_total: comments,
+      views_last_checked_at: Date.now()
+    };
+    if (prevCurrent > 0) {
+      patch.views_prev_numeric = prevCurrent;
+      if (prevCheckedAt) patch.views_prev_checked_at = prevCheckedAt;
+    }
+    if (!baseline) patch.views_baseline_numeric = current;
+    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
     catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
