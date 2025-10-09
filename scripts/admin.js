@@ -325,41 +325,108 @@ uploadBtn.addEventListener('click', () => {
 
 async function processDataAndUpload(data) {
   uploadStatus.textContent = '변경사항 분석 중...';
-  // 해시 기반 업서트 사용(중복 키: hash)
 
-  const toUpsert = [];
+  // 1) 입력 정규화
+  const incoming = [];
   for (const row of data) {
-    if (!row?.Title && !row?.title) continue;
+    const hasAny = row && (row.Title || row.title || row['YouTube URL'] || row.youtube_url || row.Hash);
+    if (!hasAny) continue;
     const url = row['YouTube URL'] || row['youtube_url'] || '';
     const computedHash = String(row.Hash || stableHash(String(url || row.Title || row.title || ''))).trim();
     if (!computedHash) continue;
-    toUpsert.push({
-      thumbnail: row.Thumbnail || row.thumbnail || '',
-      title: row.Title || row.title || '',
-      views: row.Views || row.views || '',
-      views_numeric: toBigIntSafe(row.Views_numeric ?? row.views_numeric),
-      channel: row.Channel || row.channel || '',
-      date: normalizeDate(row.Date || row.date || ''),
-      subscribers: row.Subscribers || row.subscribers || '',
-      subscribers_numeric: toBigIntSafe(row.Subscribers_numeric ?? row.subscribers_numeric),
+    incoming.push({
       hash: computedHash,
-      youtube_url: url,
+      thumbnail: (row.Thumbnail || row.thumbnail || '').trim(),
+      title: (row.Title || row.title || '').trim(),
+      views: (row.Views || row.views || '').toString(),
+      views_numeric: (row.Views_numeric ?? row.views_numeric),
+      channel: (row.Channel || row.channel || '').trim(),
+      date: normalizeDate(row.Date || row.date || ''),
+      subscribers: (row.Subscribers || row.subscribers || '').trim(),
+      subscribers_numeric: (row.Subscribers_numeric ?? row.subscribers_numeric),
+      youtube_url: (url || '').trim(),
       group_name: row.group_name || '',
-      template_type: row['템플릿 유형'] || row.template_type || '',
-      last_modified: Date.now()
+      template_type: row['템플릿 유형'] || row.template_type || ''
     });
   }
+  if (!incoming.length) { uploadStatus.textContent = '업로드할 유효한 행이 없습니다.'; uploadStatus.style.color = 'orange'; return; }
 
+  // 2) 기존 데이터 조회 (hash 기준)
   const BATCH = 500; let processed = 0;
-  for (let i = 0; i < toUpsert.length; i += BATCH) {
-    const chunk = toUpsert.slice(i, i + BATCH);
-    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'hash' });
-    if (error) { uploadStatus.textContent = '업서트 실패: ' + error.message; uploadStatus.style.color='red'; return; }
-    processed += chunk.length;
-    uploadStatus.textContent = `업서트 처리 중... ${processed}/${toUpsert.length}`;
-    await new Promise(r => setTimeout(r, 80));
+  const hashList = incoming.map(r => r.hash);
+  const existingByHash = new Map();
+  for (let i = 0; i < hashList.length; i += BATCH) {
+    const slice = hashList.slice(i, i + BATCH);
+    const { data: rows } = await supabase
+      .from('videos')
+      .select('id,hash,thumbnail,title,views,views_numeric,channel,date,subscribers,subscribers_numeric,youtube_url,group_name,template_type')
+      .in('hash', slice);
+    (rows || []).forEach(r => existingByHash.set(r.hash, r));
   }
-  uploadStatus.textContent = `완료: ${toUpsert.length}건 업서트`;
+
+  // 3) 삽입 대상과 "누락 채움" 업데이트 대상 분리
+  const toInsert = [];
+  const toUpdate = [];
+  const now = Date.now();
+  for (const item of incoming) {
+    const exist = existingByHash.get(item.hash);
+    if (!exist) {
+      // 신규: 제공된 값만으로 삽입
+      const payload = { hash: item.hash, last_modified: now };
+      if (item.thumbnail) payload.thumbnail = item.thumbnail;
+      if (item.title) payload.title = item.title;
+      if (item.views) payload.views = item.views;
+      if (item.views_numeric != null) payload.views_numeric = toBigIntSafe(item.views_numeric);
+      if (item.channel) payload.channel = item.channel;
+      if (item.date) payload.date = item.date;
+      if (item.subscribers) payload.subscribers = item.subscribers;
+      if (item.subscribers_numeric != null) payload.subscribers_numeric = toBigIntSafe(item.subscribers_numeric);
+      if (item.youtube_url) payload.youtube_url = item.youtube_url;
+      if (item.group_name) payload.group_name = item.group_name;
+      if (item.template_type) payload.template_type = item.template_type;
+      toInsert.push(payload);
+    } else {
+      // 기존: 누락된 필드만 채우기 (null/빈 문자열만 누락으로 간주)
+      const upd = { id: exist.id };
+      let has = false;
+      const isEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+      if (item.thumbnail && isEmpty(exist.thumbnail)) { upd.thumbnail = item.thumbnail; has = true; }
+      if (item.title && isEmpty(exist.title)) { upd.title = item.title; has = true; }
+      if (item.views && isEmpty(exist.views)) { upd.views = item.views; has = true; }
+      if (item.views_numeric != null && (exist.views_numeric == null || exist.views_numeric === '')) { upd.views_numeric = toBigIntSafe(item.views_numeric); has = true; }
+      if (item.channel && isEmpty(exist.channel)) { upd.channel = item.channel; has = true; }
+      if (item.date && isEmpty(exist.date)) { upd.date = item.date; has = true; }
+      if (item.subscribers && isEmpty(exist.subscribers)) { upd.subscribers = item.subscribers; has = true; }
+      if (item.subscribers_numeric != null && (exist.subscribers_numeric == null || exist.subscribers_numeric === '')) { upd.subscribers_numeric = toBigIntSafe(item.subscribers_numeric); has = true; }
+      if (item.youtube_url && isEmpty(exist.youtube_url)) { upd.youtube_url = item.youtube_url; has = true; }
+      if (item.group_name && isEmpty(exist.group_name)) { upd.group_name = item.group_name; has = true; }
+      if (item.template_type && isEmpty(exist.template_type)) { upd.template_type = item.template_type; has = true; }
+      if (has) { upd.last_modified = now; toUpdate.push(upd); }
+    }
+  }
+
+  // 4) 삽입 처리
+  let inserted = 0, updated = 0;
+  for (let i = 0; i < toInsert.length; i += BATCH) {
+    const chunk = toInsert.slice(i, i + BATCH);
+    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'hash' });
+    if (error) { uploadStatus.textContent = '삽입/업서트 실패: ' + error.message; uploadStatus.style.color='red'; return; }
+    inserted += chunk.length; processed += chunk.length;
+    uploadStatus.textContent = `처리 중... 삽입 ${inserted}, 업데이트 ${updated}`;
+    await new Promise(r => setTimeout(r, 60));
+  }
+
+  // 5) 누락 채움 업데이트 처리 (id 충돌로 업데이트)
+  for (let i = 0; i < toUpdate.length; i += BATCH) {
+    const chunk = toUpdate.slice(i, i + BATCH);
+    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'id' });
+    if (error) { uploadStatus.textContent = '누락 채움 실패: ' + error.message; uploadStatus.style.color='orange'; return; }
+    updated += chunk.length; processed += chunk.length;
+    uploadStatus.textContent = `처리 중... 삽입 ${inserted}, 업데이트 ${updated}`;
+    await new Promise(r => setTimeout(r, 60));
+  }
+
+  uploadStatus.textContent = `완료: 삽입 ${inserted}, 누락 채움 업데이트 ${updated}`;
   uploadStatus.style.color = 'green';
   selectedFile = null; fileNameDisplay.textContent = ''; fileNameDisplay.classList.remove('active');
   fetchAndDisplayData();
