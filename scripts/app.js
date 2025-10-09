@@ -17,7 +17,8 @@ const subsApplyBtn = document.getElementById('subs-apply');
 const subsResetBtn = document.getElementById('subs-reset');
 
 // 칩 & 통계 요소
-const viewChips = document.querySelectorAll('.view-chip-group .chip');
+// 주의: 구독자 바에도 'view-chip-group' 클래스가 사용되던 문제가 있어, 뷰 전환 칩은 필터 컨테이너 내로 한정
+const viewChips = document.querySelectorAll('.filter-container .view-chip-group .chip');
 const sortChips = document.querySelectorAll('.sort-chip-group .chip');
 const statChannels = document.getElementById('stat-channels');
 const statVideos = document.getElementById('stat-videos');
@@ -32,6 +33,8 @@ const PAGE_BATCH = 200;              // 페이지 표시 200개
 const DB_FETCH_BATCH = 1000;         // Supabase 요청당 최대 1000 권장
 const DB_CONCURRENCY = 4;            // 병렬 요청 개수
 const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
+const LIVE_SYNC_INTERVAL_MS = 5000;  // 실시간 증분 동기화 주기 (5초)
+const SKIP_CACHE_ON_FIRST_LOAD = true; // 첫 진입 시 캐시 무시하고 항상 최신 로드
 
 // 상태
 let allVideos = [];
@@ -42,6 +45,7 @@ let currentPage = 1;     // 1-based 페이지 인덱스
 let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
 let subsFilter = { preset: 'all', min: null, max: null };
 let expandedChannels = new Set();
+let liveSyncTimer = null;
 
 // 페이지네이션 쿼리 상태
 let lastVisible = null;
@@ -209,6 +213,30 @@ async function setCached(data) {
     await idbSet(IDB_KEY, rec);
 }
 
+function getLocalLatestTs() {
+    try { return Math.max(0, ...allVideos.map(v => Number(v.last_modified || 0)).filter(Boolean)); } catch { return 0; }
+}
+
+async function pollLatestAndSync() {
+    try {
+        const { data } = await supabase
+            .from('videos')
+            .select('last_modified')
+            .order('last_modified', { ascending: false })
+            .limit(1);
+        const remoteTs = Number((data && data[0]?.last_modified) || 0) || 0;
+        const localTs = getLocalLatestTs();
+        if (remoteTs > localTs) await syncIncrementalUpdates(localTs);
+    } catch {}
+}
+
+function startLiveSync() {
+    if (liveSyncTimer) return;
+    liveSyncTimer = setInterval(pollLatestAndSync, LIVE_SYNC_INTERVAL_MS);
+}
+
+function stopLiveSync() { if (liveSyncTimer) { clearInterval(liveSyncTimer); liveSyncTimer = null; } }
+
 // 서버 버전 태그 조회 (총 개수 + 최신 last_modified)
 async function fetchDatasetVersion() {
     let total = 0; let newest = 0;
@@ -232,7 +260,9 @@ async function fetchVideos() {
         try { remoteVer = await fetchDatasetVersion(); } catch {}
         const localVer = await idbGet(IDB_VER_KEY);
 
-        if (remoteVer?.tag && localVer && remoteVer.tag === localVer) {
+        const firstLoadDone = sessionStorage.getItem('firstLoadDone') === '1';
+        const allowCache = !SKIP_CACHE_ON_FIRST_LOAD || firstLoadDone;
+        if (allowCache && remoteVer?.tag && localVer && remoteVer.tag === localVer) {
             // 버전 일치 시 캐시 사용(TTL 무시)
             const cached = await getCached();
             if (cached?.data?.length) {
@@ -261,6 +291,8 @@ async function fetchVideos() {
         filterAndRender();
         updateLoadMoreVisibility();
         loadedOk = true;
+        try { sessionStorage.setItem('firstLoadDone', '1'); } catch {}
+        startLiveSync();
     } catch (error) {
         console.error('Error fetching videos: ', error);
         // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
@@ -661,6 +693,21 @@ if (sortFilter) {
 ensureTableSkeleton('video');
 fetchVideos();
 
+// 캐시 초기화 버튼
+document.getElementById('clear-cache-btn')?.addEventListener('click', async () => {
+    try {
+        await idbSet(IDB_KEY, null);
+        await idbSet(IDB_VER_KEY, null);
+        allVideos = [];
+        filteredVideos = [];
+        currentPage = 1;
+        if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">캐시 초기화됨. 다시 불러오는 중...</td></tr>';
+        await fetchVideos();
+    } catch (e) {
+        console.error('clear cache error', e);
+    }
+});
+
 // 통계 카드 토글
 if (toggleStatsChip && statsGrid) {
     toggleStatsChip.addEventListener('click', () => {
@@ -713,6 +760,7 @@ subsChips.forEach(btn => {
         subsFilter.preset = btn.getAttribute('data-subs') || 'all';
         subsFilter.min = null; subsFilter.max = null;
         currentPage = 1;
+        // 현재 뷰 모드 유지한 채 재렌더
         filterAndRender(true);
     });
 });
