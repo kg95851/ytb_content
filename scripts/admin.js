@@ -342,24 +342,57 @@ async function processDataAndUpload(data) {
 
   const incoming = [];
   for (const row of data) {
-    const hasAny = row && (row.Title || row.title || row['YouTube URL'] || row.youtube_url || row.Hash);
+    if (!row || typeof row !== 'object') continue;
+    const normMap = new Map();
+    Object.keys(row).forEach((k) => { normMap.set(String(k).trim().toLowerCase().replace(/[\s_-]+/g,'')); });
+    const getCell = (variants, raw=false) => {
+      for (const v of variants) {
+        const keyNorm = String(v).trim().toLowerCase().replace(/[\s_-]+/g,'');
+        // exact or normalized match
+        for (const origKey of Object.keys(row)) {
+          const ok = String(origKey).trim().toLowerCase().replace(/[\s_-]+/g,'');
+          if (ok === keyNorm) {
+            const val = row[origKey];
+            return raw ? val : (val == null ? '' : String(val).trim());
+          }
+        }
+      }
+      return raw ? undefined : '';
+    };
+
+    const url = getCell(['YouTube URL','YouTube Url','youtube_url','youtube url','유튜브URL','url','링크']);
+    const hashExplicit = getCell(['hash','Hash']);
+    const title = getCell(['title','Title','제목']);
+    const thumb = getCell(['thumbnail','Thumbnail','썸네일','썸네일주소','썸네일url','thumbnail url','thumb','image','image_url','이미지','이미지url']);
+    const views = getCell(['views','Views','조회수','viewCount','view count']);
+    const views_numeric_raw = getCell(['views_numeric','Views_numeric','조회수_numeric','조회수(숫자)','조회수수치'], true);
+    const channel = getCell(['channel','Channel','채널']);
+    const date = normalizeDate(getCell(['date','Date','게시일','publishedAt','publish_date']));
+    const subs = getCell(['subscribers','Subscribers','구독자','subs']);
+    const subs_numeric_raw = getCell(['subscribers_numeric','Subscribers_numeric','구독자_numeric','구독자(숫자)'], true);
+    const group_name = getCell(['group_name','Group','그룹']);
+    const template_type = getCell(['template_type','템플릿 유형','템플릿','template']);
+
+    // 최소 식별 정보 없는 행 스킵
+    const hasAny = !!(hashExplicit || url || title);
     if (!hasAny) continue;
-    const url = row['YouTube URL'] || row['youtube_url'] || '';
-    const computedHash = String(row.Hash || stableHash(String(url || row.Title || row.title || ''))).trim();
+
+    const computedHash = String(hashExplicit || stableHash(String(url || title || ''))).trim();
     if (!computedHash) continue;
+
     incoming.push({
       hash: computedHash,
-      thumbnail: (row.Thumbnail || row.thumbnail || '').trim(),
-      title: (row.Title || row.title || '').trim(),
-      views: (row.Views || row.views || '').toString(),
-      views_numeric: (row.Views_numeric ?? row.views_numeric),
-      channel: (row.Channel || row.channel || '').trim(),
-      date: normalizeDate(row.Date || row.date || ''),
-      subscribers: (row.Subscribers || row.subscribers || '').trim(),
-      subscribers_numeric: (row.Subscribers_numeric ?? row.subscribers_numeric),
-      youtube_url: (url || '').trim(),
-      group_name: row.group_name || '',
-      template_type: row['템플릿 유형'] || row.template_type || ''
+      thumbnail: thumb,
+      title,
+      views: views ? String(views) : '',
+      views_numeric: (views_numeric_raw !== undefined ? views_numeric_raw : undefined),
+      channel,
+      date,
+      subscribers: subs,
+      subscribers_numeric: (subs_numeric_raw !== undefined ? subs_numeric_raw : undefined),
+      youtube_url: url,
+      group_name,
+      template_type
     });
   }
   if (!incoming.length) { uploadStatus.textContent = '업로드할 유효한 행이 없습니다.'; uploadStatus.style.color = 'orange'; return; }
@@ -725,9 +758,5 @@ function toBigIntSafe(value) {
   // supabase-js는 JS number를 그대로 전송하므로 bigint 컬럼에는 정수 문자열을 사용해도 허용됩니다.
   try { return BigInt(digits).toString(); } catch { return 0; }
 }
-
-
-
-
 
 
