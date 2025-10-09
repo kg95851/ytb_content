@@ -53,6 +53,7 @@ const CACHE_TTL = 60 * 60 * 1000; // 1시간
 const IDB_DB = 'videosCacheDB';
 const IDB_STORE = 'kv';
 const IDB_KEY = 'videosCompressed';
+const IDB_VER_KEY = 'videosVersionTag';
 
 async function idbOpen() {
     return new Promise((resolve, reject) => {
@@ -208,42 +209,38 @@ async function setCached(data) {
     await idbSet(IDB_KEY, rec);
 }
 
+// 서버 버전 태그 조회 (총 개수 + 최신 last_modified)
+async function fetchDatasetVersion() {
+    let total = 0; let newest = 0;
+    try {
+        const { count } = await supabase.from('videos').select('id', { count: 'exact', head: true });
+        if (typeof count === 'number') total = count;
+    } catch {}
+    try {
+        const { data } = await supabase.from('videos').select('last_modified').order('last_modified', { ascending: false }).limit(1);
+        if (Array.isArray(data) && data[0]?.last_modified) newest = Number(data[0].last_modified) || 0;
+    } catch {}
+    return { total, newest, tag: `${total}:${newest}` };
+}
+
 async function fetchVideos() {
     let loadedOk = false;
     try {
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
-        // 0) CDN 정적 JSON 우선 시도 (public/data/videos.json 표준 경로). 로컬 렌더 후에도 계속 page 로드 가능하게 hasMore 유지
-        try {
-            const res = await fetch('/data/videos.json', { cache: 'no-cache' });
-            if (res.ok) {
-                allVideos = await res.json();
-                await setCached(allVideos);
+        // 0) 서버 버전 태그 확인 → 로컬 버전과 다르면 무조건 전량 재로딩
+        let remoteVer = null;
+        try { remoteVer = await fetchDatasetVersion(); } catch {}
+        const localVer = await idbGet(IDB_VER_KEY);
+
+        if (remoteVer?.tag && localVer && remoteVer.tag === localVer) {
+            // 버전 일치 시 캐시 사용(TTL 무시)
+            const cached = await getCached();
+            if (cached?.data?.length) {
+                allVideos = cached.data || [];
                 filterAndRender();
-                // JSON 로드 후에도 최신 증분을 백그라운드로 동기화(캐시+신규 병합)
-                try {
-                    const latestTs = Math.max(0, ...allVideos.map(v => Number(v.last_modified || 0)).filter(Boolean));
-                    syncIncrementalUpdates(latestTs).catch(()=>{});
-                } catch {}
-                hasMore = true;
-                updateLoadMoreVisibility();
                 loadedOk = true;
                 return;
             }
-        } catch {}
-
-        // system/settings 폴백은 사용하지 않음
-
-        const cached = await getCached();
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            allVideos = cached.data || [];
-            filterAndRender();
-            // 백그라운드 증분 동기화(캐시 시점 이후 추가/수정분 전체 병합)
-            try {
-                const latestTs = Math.max(0, ...allVideos.map(v => Number(v.last_modified || 0)).filter(Boolean));
-                syncIncrementalUpdates(latestTs).catch(()=>{});
-            } catch {}
-            loadedOk = true;
-            return;
         }
 
         if (FETCH_ALL_FROM_DB) {
@@ -260,6 +257,7 @@ async function fetchVideos() {
             hasMore = (data?.length || 0) === PAGE_BATCH;
         }
         await setCached(allVideos);
+        if (remoteVer?.tag) await idbSet(IDB_VER_KEY, remoteVer.tag);
         filterAndRender();
         updateLoadMoreVisibility();
         loadedOk = true;
