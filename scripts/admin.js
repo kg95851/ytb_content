@@ -68,6 +68,10 @@ const exportStatus = document.getElementById('export-status');
 // Concurrency inputs
 const ytTranscriptConcInput = document.getElementById('yt-transcript-conc');
 const ytViewsConcInput = document.getElementById('yt-views-conc');
+// Options
+const ytTranscriptOnlyMissing = document.getElementById('yt-transcript-only-missing');
+const ytViewsOnlyMissing = document.getElementById('yt-views-only-missing');
+const ytViewsExcludeMin = document.getElementById('yt-views-exclude-min');
 
 let currentData = [];
 let adminCurrentPage = 1;
@@ -1022,8 +1026,10 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url').eq('id', id).single();
+    const { data: row } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) return;
     const url = row?.youtube_url || '';
     if (!url) throw new Error('no url');
     const transcript = await fetchTranscriptByUrl(url);
@@ -1041,8 +1047,13 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  const onlyMissing = !!ytViewsOnlyMissing?.checked;
+  const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
+  const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
   const worker = async (id, key) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
+    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
+    if (onlyMissing && row?.views_numeric) return;
+    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) return;
     const url = row?.youtube_url || '';
     const u = new URL(url);
     let videoId = u.searchParams.get('v') || '';
@@ -1066,8 +1077,10 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
   const ids = currentData.map(v => v.id);
+  const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url').eq('id', id).single();
+    const { data: row } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) return;
     const url = row?.youtube_url || '';
     if (!url) throw new Error('no url');
     const transcript = await fetchTranscriptByUrl(url);
@@ -1084,8 +1097,13 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
   const ids = currentData.map(v => v.id);
+  const onlyMissing = !!ytViewsOnlyMissing?.checked;
+  const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
+  const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
   const worker = async (id, key) => {
-    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views').eq('id', id).single();
+    const { data: row } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
+    if (onlyMissing && row?.views_numeric) return;
+    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) return;
     const url = row?.youtube_url || '';
     const u = new URL(url);
     let videoId = u.searchParams.get('v') || '';
