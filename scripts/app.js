@@ -219,6 +219,11 @@ async function fetchVideos() {
                 allVideos = await res.json();
                 await setCached(allVideos);
                 filterAndRender();
+                // JSON 로드 후에도 최신 증분을 백그라운드로 동기화(캐시+신규 병합)
+                try {
+                    const latestTs = Math.max(0, ...allVideos.map(v => Number(v.last_modified || 0)).filter(Boolean));
+                    syncIncrementalUpdates(latestTs).catch(()=>{});
+                } catch {}
                 hasMore = true;
                 updateLoadMoreVisibility();
                 loadedOk = true;
@@ -232,8 +237,11 @@ async function fetchVideos() {
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             allVideos = cached.data || [];
             filterAndRender();
-            // 백그라운드 업데이트 확인
-            checkForUpdates(cached.timestamp).catch(()=>{});
+            // 백그라운드 증분 동기화(캐시 시점 이후 추가/수정분 전체 병합)
+            try {
+                const latestTs = Math.max(0, ...allVideos.map(v => Number(v.last_modified || 0)).filter(Boolean));
+                syncIncrementalUpdates(latestTs).catch(()=>{});
+            } catch {}
             loadedOk = true;
             return;
         }
@@ -347,21 +355,27 @@ async function loadNextPage() {
     }
 }
 
-async function checkForUpdates(sinceTs) {
+async function syncIncrementalUpdates(sinceTs) {
     try {
-        const { data, error } = await supabase
-            .from('videos')
-            .select('*')
-            .gt('last_modified', sinceTs || 0)
-            .order('last_modified', { ascending: false })
-            .limit(50);
-        if (error || !Array.isArray(data) || data.length === 0) return;
-        const updates = data;
-        const map = new Map(allVideos.map(v => [v.id, v]));
-        updates.forEach(u => map.set(u.id, u));
-        allVideos = Array.from(map.values());
-        await setCached(allVideos);
-        filterAndRender();
+        let lastTs = Number(sinceTs || 0);
+        const LIMIT = 1000;
+        while (true) {
+            const { data, error } = await supabase
+                .from('videos')
+                .select('*')
+                .gt('last_modified', lastTs)
+                .order('last_modified', { ascending: true })
+                .limit(LIMIT);
+            if (error || !Array.isArray(data) || data.length === 0) break;
+            const map = new Map(allVideos.map(v => [v.id, v]));
+            for (const u of data) map.set(u.id, u);
+            allVideos = Array.from(map.values());
+            await setCached(allVideos);
+            lastTs = Number(data[data.length - 1]?.last_modified || lastTs);
+            if (data.length < LIMIT) break;
+        }
+        // 현재 페이지 유지하여 부드럽게 갱신
+        filterAndRender(true);
     } catch {}
 }
 
