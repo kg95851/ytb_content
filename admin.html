@@ -69,6 +69,16 @@
                         <span class="toolbar-sep"></span>
                         <button id="yt-transcript-selected-btn" class="btn">선택 대본 추출 (YouTube)</button>
                         <button id="yt-views-selected-btn" class="btn">선택 조회수 갱신 (YouTube)</button>
+                        <label class="option" style="margin-left:.25rem;">
+                            동시성
+                            <input type="number" id="yt-transcript-conc" value="6" min="1" max="20" style="width:70px; margin-left:.25rem;">
+                        </label>
+                        <label class="option" style="margin-left:.25rem;">
+                            동시성
+                            <input type="number" id="yt-views-conc" value="10" min="1" max="30" style="width:70px; margin-left:.25rem;">
+                        </label>
+                        <button id="yt-transcript-all-btn" class="btn">전체 대본 추출 (YouTube)</button>
+                        <button id="yt-views-all-btn" class="btn">전체 조회수 갱신 (YouTube)</button>
                         <button id="export-json-btn" class="btn btn-primary">📥 JSON 파일로 내보내기</button>
                     </div>
                     <input type="text" id="data-search-input" placeholder="제목, 채널명 등으로 검색...">
