@@ -728,18 +728,23 @@ if (exportJsonBtn) {
 // ---------- Schedules ----------
 async function createSchedule(scope, ids, runAt, forceType) {
   const type = forceType || (document.querySelector('input[name="schedule-type"]:checked')?.value) || 'analysis';
-  const nowIso = new Date().toISOString();
+  const now = new Date();
+  const nowIso = new Date(now.getTime()).toISOString();
+  // datetime-local 값은 로컬 타임존 기준의 벽시각. 이를 실제 순간(UTC) ISO로 변환
+  const local = new Date(runAt);
+  const runAtIso = new Date(local.getTime()).toISOString();
   const cfg = {
     type,
     scope,
     remaining_ids: scope === 'selected' ? ids : [],
     status: 'pending',
-    run_at: new Date(runAt).toISOString(),
+    run_at: runAtIso,
     created_at: nowIso,
     updated_at: nowIso
   };
   // 최소 스키마(id, date, content, created_at)에 맞춰 저장
-  const payload = { date: cfg.run_at, content: JSON.stringify(cfg), created_at: nowIso };
+  // date는 날짜만 보존되어 오동작을 유발하므로 빈 값으로 두거나(권장) content.run_at만 사용합니다.
+  const payload = { content: JSON.stringify(cfg), created_at: nowIso };
   const { data, error } = await supabase.from('schedules').insert(payload).select('id').single();
   if (error) throw error; return data.id;
 }
@@ -754,7 +759,9 @@ function parseScheduleContent(row) {
   const scope = cfg.scope || row?.scope || 'all';
   const remainingIds = cfg.remaining_ids || cfg.ids || row?.remaining_ids || row?.ids || [];
   const status = cfg.status || row?.status || 'pending';
-  const runAtIso = row?.run_at || row?.date || cfg.run_at || cfg.date || null;
+  // 실행/표시는 시간 손실이 없는 값만 사용
+  // 표시: content.run_at(ISO) 또는 row.run_at(ISO)만 허용. date 컬럼은 무시(날짜만이라 KST 09:00로 보일 수 있음)
+  const runAtIso = cfg.run_at || row?.run_at || null;
   return { type, scope, remainingIds, status, runAtIso };
 }
 
@@ -793,7 +800,7 @@ function renderSchedulesTable(rows) {
           <td>${r.id}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString() : ''; })()}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
         </tr>`).join('')}
