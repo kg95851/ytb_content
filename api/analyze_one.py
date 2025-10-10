@@ -2,6 +2,7 @@ import json
 import os
 import traceback
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, request, jsonify
 
 try:
@@ -123,21 +124,34 @@ if _load_sb is None or _analyze_video is None:
             score += 5
         return max(1, min(10, score))
 
-    def _analyze_video(doc):  # type: ignore
+    def _analyze_video_fast(doc):  # type: ignore
         transcript = (doc or {}).get('transcript_text') or ''
         if not transcript:
             raise RuntimeError('no transcript_text in DB')
-        # prompts
-        material = _call_gemini(_build_material_prompt(), transcript)
-        hooking = _call_gemini(_build_hooking_prompt(), transcript)
-        structure = _call_gemini(_build_structure_prompt(), transcript)
+        # Trim overly long transcripts to improve latency
+        max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
+        tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+        jobs = {
+            'material': (_build_material_prompt(), tshort),
+            'hooking': (_build_hooking_prompt(), tshort),
+            'structure': (_build_structure_prompt(), tshort)
+        }
+        results = { 'material': '', 'hooking': '', 'structure': '' }
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            fut_map = { ex.submit(_call_gemini, p, txt): name for name, (p, txt) in jobs.items() }
+            for fut in as_completed(fut_map):
+                name = fut_map[fut]
+                try:
+                    results[name] = (fut.result() or '').strip()
+                except Exception as e:
+                    results[name] = ''
         # dopamine graph (local)
-        sentences = _clean_sentences_ko(transcript)
+        sentences = _clean_sentences_ko(tshort)
         dopamine_graph = [{ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' } for s in sentences]
         return {
-            'material': (material or '').strip()[:2000],
-            'hooking': (hooking or '').strip()[:2000],
-            'narrative_structure': (structure or '').strip()[:4000],
+            'material': results['material'][:2000],
+            'hooking': results['hooking'][:2000],
+            'narrative_structure': results['structure'][:4000],
             'dopamine_graph': dopamine_graph,
             'analysis_transcript_len': len(transcript),
             'last_modified': int(time.time()*1000)
@@ -182,7 +196,8 @@ def analyze_one():
             return jsonify({ 'ok': False, 'error': 'not_found' }), 404
         video = rows[0]
         stage = 'analyze'
-        updated = _analyze_video(video) or {}
+        # use faster analyzer
+        updated = _analyze_video_fast(video) or {}
         if updated:
             # 스키마에 없는 컬럼은 제거
             allowed = set(video.keys())
