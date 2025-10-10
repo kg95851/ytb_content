@@ -728,19 +728,47 @@ if (exportJsonBtn) {
 // ---------- Schedules ----------
 async function createSchedule(scope, ids, runAt, forceType) {
   const type = forceType || (document.querySelector('input[name="schedule-type"]:checked')?.value) || 'analysis';
-  const payload = { scope, ids: scope==='selected'? ids: [], run_at: new Date(runAt).toISOString(), type, status:'pending', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const payload = { scope, run_at: new Date(runAt).toISOString(), type, status:'pending', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  if (scope === 'selected') payload.remaining_ids = ids; // 테이블에 ids 컬럼이 없을 수 있으므로 remaining_ids 사용
   const { data, error } = await supabase.from('schedules').insert(payload).select('id').single();
   if (error) throw error; return data.id;
 }
 
+function parseScheduleContent(row) {
+  let cfg = {};
+  try {
+    if (row && typeof row.content === 'string') cfg = JSON.parse(row.content);
+    else if (row && typeof row.content === 'object' && row.content) cfg = row.content;
+  } catch {}
+  const type = cfg.type || row?.type || 'analysis';
+  const scope = cfg.scope || row?.scope || 'all';
+  const remainingIds = cfg.remaining_ids || cfg.ids || row?.remaining_ids || row?.ids || [];
+  const status = cfg.status || row?.status || 'pending';
+  const runAtIso = row?.run_at || row?.date || cfg.run_at || cfg.date || null;
+  return { type, scope, remainingIds, status, runAtIso };
+}
+
 async function listSchedules() {
-  const { data, error } = await supabase.from('schedules').select('*').order('run_at', { ascending: true });
+  const { data, error } = await supabase.from('schedules').select('*');
   if (error) return [];
-  return data || [];
+  const rows = data || [];
+  return rows.sort((a,b) => {
+    const A = new Date(parseScheduleContent(a).runAtIso || 0).getTime();
+    const B = new Date(parseScheduleContent(b).runAtIso || 0).getTime();
+    return A - B;
+  });
 }
 
 async function cancelSchedule(id) {
-  await supabase.from('schedules').update({ status:'canceled', updated_at: new Date().toISOString() }).eq('id', id);
+  const { data } = await supabase.from('schedules').select('*').eq('id', id).single();
+  let cfg = {};
+  try { cfg = typeof data?.content === 'string' ? JSON.parse(data.content) : (data?.content || {}); } catch {}
+  cfg.status = 'canceled'; cfg.updated_at = new Date().toISOString();
+  if (data?.content !== undefined) {
+    await supabase.from('schedules').update({ content: JSON.stringify(cfg) }).eq('id', id);
+  } else {
+    await supabase.from('schedules').update({ status: 'canceled', updated_at: new Date().toISOString() }).eq('id', id);
+  }
 }
 
 function renderSchedulesTable(rows) {
@@ -753,11 +781,11 @@ function renderSchedulesTable(rows) {
         <tr data-id="${r.id}">
           <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
           <td>${r.id}</td>
-          <td>${r.type === 'ranking' ? '랭킹' : (r.type === 'analysis' ? '분석' : r.type)}</td>
-          <td>${r.scope === 'all' ? '전체' : `선택(${(r.ids||[]).length})`}</td>
-          <td>${r.run_at ? new Date(r.run_at).toLocaleString() : ''}</td>
-          <td>${r.status}</td>
-          <td>${r.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString() : ''; })()}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
+          <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
