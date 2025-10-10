@@ -1034,28 +1034,21 @@ async function analyzeOneVideo(video) {
 
 async function runAnalysisForIds(ids) {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
-  showAnalysisBanner(`총 ${ids.length}개 분석 시작`);
+  showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
   let done = 0, failed = 0;
   for (const id of ids) {
     try {
-      const { data: row } = await supabase.from('videos').select('*').eq('id', id).single();
-      if (!row) { failed++; continue; }
-      const { updated } = await analyzeOneVideo({ id, ...row });
-      // 스키마에 없는 컬럼은 제거해서 업데이트 오류 방지
-      const allowed = new Set(Object.keys(row || {}));
-      const payload = {};
-      for (const [k, v] of Object.entries(updated)) {
-        if (k === 'id') continue;
-        if (allowed.has(k)) payload[k] = v;
-      }
-      const { error: upErr } = await supabase.from('videos').update(payload).eq('id', id);
-      if (upErr) throw upErr;
-      done++; analysisStatus.textContent = `진행중... ${done}/${ids.length}`; updateAnalysisProgress(done, ids.length, row.title || id); appendAnalysisLog(`(${id}) 저장 완료`);
+      appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
+      const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const j = await res.json().catch(()=>({}));
+      if (j && j.error) throw new Error(j.error);
+      done++; analysisStatus.textContent = `진행중... ${done}/${ids.length}`; updateAnalysisProgress(done, ids.length, `id=${id}`); appendAnalysisLog(`(${id}) 서버 분석 완료`);
+      await fetchAndDisplayData();
     } catch (e) { failed++; appendAnalysisLog(`(${id}) 오류: ${e?.message || e}`); }
   }
   analysisStatus.textContent = `분석 완료: 성공 ${done}, 실패 ${failed}`; analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `성공 ${done}, 실패 ${failed}`);
-  await fetchAndDisplayData();
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
