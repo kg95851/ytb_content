@@ -50,12 +50,12 @@
         <!-- 구독자 필터 바 -->
         <div class="subscriber-bar toolbar-line" id="subscriber-bar">
             <div class="view-chip-group compact" aria-label="구독자 필터">
-                <button class="chip chip-compact chip-subs" data-subs="all">전체</button>
-                <button class="chip chip-compact chip-subs" data-subs="lt1k">1천 미만</button>
-                <button class="chip chip-compact chip-subs" data-subs="1k-10k">1천~1만</button>
-                <button class="chip chip-compact chip-subs" data-subs="10k-100k">1만~10만</button>
-                <button class="chip chip-compact chip-subs" data-subs="100k-1m">10만~100만</button>
-                <button class="chip chip-compact chip-subs" data-subs=">=1m">100만 이상</button>
+                <button class="chip chip-compact chip-subs tier-all" data-subs="all">전체</button>
+                <button class="chip chip-compact chip-subs tier-c3" data-subs="lt1k">1천 미만</button>
+                <button class="chip chip-compact chip-subs tier-c2" data-subs="1k-10k">1천~1만</button>
+                <button class="chip chip-compact chip-subs tier-c1" data-subs="10k-100k">1만~10만</button>
+                <button class="chip chip-compact chip-subs tier-b5" data-subs="100k-1m">10만~100만</button>
+                <button class="chip chip-compact chip-subs tier-a" data-subs=">=1m">100만 이상</button>
             </div>
             <div class="toolbar-sep"></div>
             <input type="number" id="subs-min" class="input-compact" placeholder="최소 구독자" min="0" />
@@ -97,6 +97,7 @@
             </select>
             
             <button id="toggle-stats-chip" class="chip chip-compact" title="통계 카드">통계</button>
+                <button id="clear-cache-btn" class="chip chip-compact" title="캐시 삭제">캐시 초기화</button>
         </div>
         <!-- 무한 스크롤 기반: 더 보기 버튼 제거 -->
 
