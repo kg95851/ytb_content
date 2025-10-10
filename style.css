@@ -55,10 +55,51 @@ a:hover { color: #87ceeb; }
 .chip:hover { background:#f1f5f9; }
 .chip-active { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
 
+/* 상단바(필터 컨테이너) 칩 다크 스타일 & 활성 색상 */
+.filter-container.toolbar-line .view-chip-group .chip,
+.filter-container.toolbar-line .sort-chip-group .chip {
+    background:#0b1326;
+    color:var(--text-primary);
+    border:1px solid var(--border-color);
+}
+.filter-container.toolbar-line .view-chip-group .chip:hover,
+.filter-container.toolbar-line .sort-chip-group .chip:hover {
+    background:#0e1a33;
+}
+.filter-container.toolbar-line .view-chip-group .chip.chip-active,
+.filter-container.toolbar-line .sort-chip-group .chip.chip-active {
+    background:#2563eb; /* 활성 파랑 */
+    color:#ffffff;
+    border-color:#1d4ed8;
+}
+
 /* 구독자 필터 바 */
 .subscriber-bar { margin-bottom: .75rem; }
 .chip-subs { background:#0b1326; color:var(--text-primary); border:1px solid var(--border-color); }
 .chip-subs:hover { background:#0e1a33; }
+
+/* 구독자 구간 색상 칩 (이미지 팔레트 유사) */
+.tier-all { background:#334155; color:#e2e8f0; border-color:#475569; }
+.tier-c3  { background:#3b82f6; color:#f8fafc; border-color:#2563eb; } /* 1천 미만 - 파란 계열 */
+.tier-c2  { background:#0ea5e9; color:#f8fafc; border-color:#0284c7; } /* 1천~1만 - 청록 */
+.tier-c1  { background:#10b981; color:#06291f; border-color:#059669; } /* 1만~10만 - 연녹 */
+.tier-b5  { background:#22c55e; color:#052b18; border-color:#16a34a; } /* 10만~100만 - 녹색 */
+.tier-a   { background:#ef4444; color:#fff7f7; border-color:#dc2626; } /* 100만 이상 - 빨강 */
+
+/* 활성/포커스/호버 시에도 구간 색 유지 */
+.chip-subs.chip-active.tier-all { background:#334155; color:#e2e8f0; }
+.chip-subs.chip-active.tier-c3  { background:#3b82f6; color:#f8fafc; }
+.chip-subs.chip-active.tier-c2  { background:#0ea5e9; color:#f8fafc; }
+.chip-subs.chip-active.tier-c1  { background:#10b981; color:#06291f; }
+.chip-subs.chip-active.tier-b5  { background:#22c55e; color:#052b18; }
+.chip-subs.chip-active.tier-a   { background:#ef4444; color:#fff7f7; }
+
+.chip-subs.tier-all:hover { background:#3b4a63; }
+.chip-subs.tier-c3:hover  { background:#2563eb; }
+.chip-subs.tier-c2:hover  { background:#0284c7; }
+.chip-subs.tier-c1:hover  { background:#0f996f; }
+.chip-subs.tier-b5:hover  { background:#1faa55; }
+.chip-subs.tier-a:hover   { background:#dc2626; }
 
 /* 컴팩트 1줄 툴바 */
 .toolbar-line { display:flex; gap:.4rem; align-items:center; padding:.4rem .5rem; border-radius: var(--radius); background: var(--card-bg); box-shadow: var(--shadow); margin-bottom:1rem; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }
