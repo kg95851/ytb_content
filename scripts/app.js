@@ -35,6 +35,15 @@ const DB_CONCURRENCY = 4;            // 병렬 요청 개수
 const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
 const LIVE_SYNC_INTERVAL_MS = 5000;  // 실시간 증분 동기화 주기 (5초)
 const SKIP_CACHE_ON_FIRST_LOAD = true; // 첫 진입 시 캐시 무시하고 항상 최신 로드
+// 필요한 컬럼만 선택하여 페이로드 최소화
+const VIDEO_COLUMNS = [
+    'id', 'title', 'channel', 'date', 'youtube_url', 'thumbnail',
+    'views', 'views_numeric', 'views_prev_numeric', 'views_baseline_numeric',
+    'views_last_checked_at', 'last_modified', 'subscribers', 'subscribers_numeric',
+    // 검색/필터 필드
+    'kr_category_large', 'kr_category_medium', 'kr_category_small',
+    'material', 'template_type', 'group_name', 'source_type', 'hooking', 'narrative_structure'
+].join(',');
 
 // 상태
 let allVideos = [];
@@ -146,6 +155,50 @@ function fmt(n) {
     try { return Number(n || 0).toLocaleString(); } catch { return String(n); }
 }
 
+// 사전 계산: 자주 쓰는 숫자/검색 인덱스 캐싱
+function precomputeOne(v) {
+    // 조회수 현재/이전값
+    const curr = parseCount(v.views_numeric || v.views || 0) || 0;
+    const prev = parseCount(v.views_prev_numeric || v.views_baseline_numeric || v.views || 0) || curr;
+    v.__viewsCurr = curr;
+    v.__viewsPrev = prev;
+    // 증가량/증가율
+    v.__riseAbs = Math.max(0, curr - prev);
+    v.__pct = prev ? ((curr - prev) / prev) * 100 : 0;
+    // 구독자 수, 날짜 타임스탬프
+    v.__subs = parseCount(v.subscribers_numeric || v.subscribers || 0) || 0;
+    v.__dateTs = v.date ? new Date(v.date).getTime() : 0;
+    // 검색 인덱스(소문자)
+    v.__search = buildSearchIndex(v);
+}
+
+function buildSearchIndex(v) {
+    try {
+        const parts = [
+            v.title, v.channel,
+            v.kr_category_large, v.kr_category_medium, v.kr_category_small,
+            v.material, v.template_type, v.group_name,
+            v.source_type, v.hooking, v.narrative_structure
+        ].filter(Boolean).map(s => String(s).toLowerCase());
+        return parts.join(' | ');
+    } catch {
+        return '';
+    }
+}
+
+function precomputeNumericFields(arr) {
+    if (!Array.isArray(arr)) return;
+    for (const v of arr) precomputeOne(v);
+}
+
+function debounce(fn, wait = 250) {
+    let t = null;
+    return (...args) => {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+    };
+}
+
 function setActiveChip(groupNodeList, target) {
     groupNodeList.forEach(btn => btn.classList.remove('chip-active'));
     if (target) target.classList.add('chip-active');
@@ -191,7 +244,7 @@ function ensureTableSkeleton(mode) {
 function updateStats(rows) {
     try {
         const channels = new Set(rows.map(v => (v.channel || '').trim()).filter(Boolean));
-        const avg = rows.length ? rows.map(computeChangePct).reduce((a,b)=>a+b,0) / rows.length : 0;
+        const avg = rows.length ? rows.map(v => (v.__pct != null ? v.__pct : computeChangePct(v))).reduce((a,b)=>a+b,0) / rows.length : 0;
         const maxTs = Math.max(...rows.map(r => Number(r.views_last_checked_at || 0)).filter(Boolean), 0);
         if (statChannels) statChannels.textContent = fmt(channels.size);
         if (statVideos) statVideos.textContent = fmt(rows.length);
@@ -252,6 +305,7 @@ async function fetchDatasetVersion() {
 }
 
 async function fetchVideos() {
+    const t0 = performance.now();
     let loadedOk = false;
     try {
         if (videoTableBody) videoTableBody.innerHTML = '<tr><td colspan="9" class="info-message">데이터를 불러오는 중...</td></tr>';
@@ -279,7 +333,7 @@ async function fetchVideos() {
         } else {
             const { data, error } = await supabase
                 .from('videos')
-                .select('*', { count: 'exact' })
+                .select(VIDEO_COLUMNS, { count: 'exact' })
                 .order('date', { ascending: false })
                 .range(0, PAGE_BATCH - 1);
             if (error) throw error;
@@ -288,6 +342,8 @@ async function fetchVideos() {
         }
         await setCached(allVideos);
         if (remoteVer?.tag) await idbSet(IDB_VER_KEY, remoteVer.tag);
+        // 사전 계산(숫자 필드 캐싱)
+        precomputeNumericFields(allVideos);
         filterAndRender();
         updateLoadMoreVisibility();
         loadedOk = true;
@@ -297,11 +353,15 @@ async function fetchVideos() {
         console.error('Error fetching videos: ', error);
         // 에러를 화면에 즉시 표시하지 않고, 스피너를 유지해 후속 로딩(캐시/재시도)이 완료되도록 둡니다.
     }
-    finally {}
+    finally {
+        const t1 = performance.now();
+        console.info(`[perf] initial fetchVideos total: ${(t1 - t0).toFixed(0)}ms, rows=${allVideos.length}`);
+    }
 }
 
 // Supabase에서 전량(14k) 로드: 1000개 단위 병렬 페이징
 async function fetchAllFromSupabase() {
+    const t0 = performance.now();
     // 1) 총 개수 조회(헤더만)
     let total = 0;
     try {
@@ -318,7 +378,7 @@ async function fetchAllFromSupabase() {
         while (true) {
             const { data, error } = await supabase
                 .from('videos')
-                .select('*')
+                .select(VIDEO_COLUMNS)
                 .order('date', { ascending: false })
                 .range(offset, offset + DB_FETCH_BATCH - 1);
             if (error) break;
@@ -343,7 +403,7 @@ async function fetchAllFromSupabase() {
         const chunk = await Promise.all(slice.map(async ([from, to]) => {
             const { data, error } = await supabase
                 .from('videos')
-                .select('*')
+                .select(VIDEO_COLUMNS)
                 .order('date', { ascending: false })
                 .range(from, to);
             if (error) return [];
@@ -351,7 +411,11 @@ async function fetchAllFromSupabase() {
         }));
         chunk.forEach(arr => results.push(...arr));
     }
-    return dedupeById(results);
+    const all = dedupeById(results);
+    precomputeNumericFields(all);
+    const t1 = performance.now();
+    console.info(`[perf] fetchAllFromSupabase: ${(t1 - t0).toFixed(0)}ms, rows=${all.length}`);
+    return all;
 }
 
 function dedupeById(rows) {
@@ -365,7 +429,7 @@ async function loadNextPage() {
     const offset = allVideos.length;
     const { data, error } = await supabase
         .from('videos')
-        .select('*')
+        .select(VIDEO_COLUMNS)
         .order('date', { ascending: false })
         .range(offset, offset + PAGE_BATCH - 1);
     const newVideos = (!error && Array.isArray(data)) ? data : [];
@@ -392,7 +456,7 @@ async function syncIncrementalUpdates(sinceTs) {
         while (true) {
             const { data, error } = await supabase
                 .from('videos')
-                .select('*')
+                .select(VIDEO_COLUMNS)
                 .gt('last_modified', lastTs)
                 .order('last_modified', { ascending: true })
                 .limit(LIMIT);
@@ -400,6 +464,7 @@ async function syncIncrementalUpdates(sinceTs) {
             const map = new Map(allVideos.map(v => [v.id, v]));
             for (const u of data) map.set(u.id, u);
             allVideos = Array.from(map.values());
+            precomputeNumericFields(allVideos);
             await setCached(allVideos);
             lastTs = Number(data[data.length - 1]?.last_modified || lastTs);
             if (data.length < LIMIT) break;
@@ -416,17 +481,13 @@ function updateLoadMoreVisibility() {
 
 // --------- 필터링 ---------
 function filterAndRender(keepPage = false) {
+    const t0 = performance.now();
     filteredVideos = [...allVideos];
-    const searchTerm = (searchInput?.value || '').toLowerCase();
+    const searchTerm = (searchInput?.value || '').toLowerCase().trim();
     if (searchTerm) {
-        filteredVideos = filteredVideos.filter(video => {
-            const fieldsToSearch = [
-                video.title, video.channel, video.kr_category_large,
-                video.kr_category_medium, video.kr_category_small,
-                video.material, video.template_type, video.group_name,
-                video.source_type, video.hooking, video.narrative_structure
-            ];
-            return fieldsToSearch.some(field => field && String(field).toLowerCase().includes(searchTerm));
+        filteredVideos = filteredVideos.filter(v => {
+            const idx = v.__search || buildSearchIndex(v);
+            return idx.includes(searchTerm);
         });
     }
     const formType = formTypeFilter?.value || 'all';
@@ -449,7 +510,7 @@ function filterAndRender(keepPage = false) {
         }
         if (min != null || max != null) {
             filteredVideos = filteredVideos.filter(v => {
-                const subs = parseCount(v.subscribers_numeric || v.subscribers || 0);
+                const subs = v.__subs != null ? v.__subs : parseCount(v.subscribers_numeric || v.subscribers || 0);
                 if (min != null && subs < min) return false;
                 if (max != null && subs > max) return false;
                 return true;
@@ -459,7 +520,10 @@ function filterAndRender(keepPage = false) {
 
     if (!keepPage) currentPage = 1;
     updateStats(filteredVideos);
+    const t1 = performance.now();
     renderCurrentView();
+    const t2 = performance.now();
+    console.info(`[perf] filter: ${(t1 - t0).toFixed(0)}ms, render: ${(t2 - t1).toFixed(0)}ms, rows=${filteredVideos.length}, mode=${viewMode}`);
 }
 
 // --------- 렌더링 ---------
@@ -473,28 +537,29 @@ function renderCurrentView() {
 }
 
 function renderVideoView() {
+    const t0 = performance.now();
     ensureTableSkeleton('video');
     if (!videoTableBody) return;
 
     // 정렬
     let rows = filteredVideos.slice();
-    rows.forEach(r => { r._pct = computeChangePct(r); r._riseAbs = getRiseAbs(r); });
+    rows.forEach(r => { if (r.__pct == null || r.__riseAbs == null) precomputeOne(r); });
     rows.sort((a,b) => {
-        if (sortMode === 'pct_desc') return (b._pct - a._pct) || (b._riseAbs - a._riseAbs);
-        if (sortMode === 'abs_desc') return (b._riseAbs - a._riseAbs) || (b._pct - a._pct);
+        if (sortMode === 'pct_desc') return (b.__pct - a.__pct) || (b.__riseAbs - a.__riseAbs);
+        if (sortMode === 'abs_desc') return (b.__riseAbs - a.__riseAbs) || (b.__pct - a.__pct);
         if (sortMode === 'views_desc' || sortMode === 'views_asc') {
-            const av = parseCount(a.views_numeric || a.views || 0);
-            const bv = parseCount(b.views_numeric || b.views || 0);
+            const av = a.__viewsCurr != null ? a.__viewsCurr : parseCount(a.views_numeric || a.views || 0);
+            const bv = b.__viewsCurr != null ? b.__viewsCurr : parseCount(b.views_numeric || b.views || 0);
             return sortMode === 'views_desc' ? (bv - av) : (av - bv);
         }
         if (sortMode === 'subs_desc' || sortMode === 'subs_asc') {
-            const as = parseCount(a.subscribers_numeric || a.subscribers || 0);
-            const bs = parseCount(b.subscribers_numeric || b.subscribers || 0);
+            const as = a.__subs != null ? a.__subs : parseCount(a.subscribers_numeric || a.subscribers || 0);
+            const bs = b.__subs != null ? b.__subs : parseCount(b.subscribers_numeric || b.subscribers || 0);
             return sortMode === 'subs_desc' ? (bs - as) : (as - bs);
         }
         // date_desc 또는 기타
-        const dateA = a.date ? new Date(a.date).getTime() : 0;
-        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        const dateA = a.__dateTs != null ? a.__dateTs : (a.date ? new Date(a.date).getTime() : 0);
+        const dateB = b.__dateTs != null ? b.__dateTs : (b.date ? new Date(b.date).getTime() : 0);
         return dateB - dateA;
     });
 
@@ -510,9 +575,9 @@ function renderVideoView() {
     const pageRows = rows.slice(startIndex, endIndex);
 
     const html = pageRows.map((r, idx) => {
-        const curr = parseCount(r.views_numeric || r.views || 0);
-        const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
-        const pct = prev ? ((curr - prev) / prev) * 100 : 0;
+        const curr = r.__viewsCurr != null ? r.__viewsCurr : parseCount(r.views_numeric || r.views || 0);
+        const prev = r.__viewsPrev != null ? r.__viewsPrev : (parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr);
+        const pct = r.__pct != null ? r.__pct : (prev ? ((curr - prev) / prev) * 100 : 0);
         const riseColor = pct >= 0 ? '#16a34a' : '#dc2626';
         const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         const lastChecked = r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-';
@@ -532,9 +597,12 @@ function renderVideoView() {
     }).join('');
 
     videoTableBody.innerHTML = html;
+    const t1 = performance.now();
+    console.info(`[perf] renderVideoView: ${(t1 - t0).toFixed(0)}ms, pageRows=${pageRows.length}`);
 }
 
 function groupByChannel(rows) {
+    const t0 = performance.now();
     const map = new Map();
     for (const r of rows) {
         const channel = (r.channel || '').trim() || 'Unknown';
@@ -542,26 +610,30 @@ function groupByChannel(rows) {
             map.set(channel, { channel, videos: [], totalRiseAbs: 0, totalViews: 0, avgRisePct: 0, representative: null });
         }
         const bucket = map.get(channel);
-        const curr = parseCount(r.views_numeric || r.views || 0) || 0;
-        const prev = parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr;
+        const curr = r.__viewsCurr != null ? r.__viewsCurr : (parseCount(r.views_numeric || r.views || 0) || 0);
+        const prev = r.__viewsPrev != null ? r.__viewsPrev : (parseCount(r.views_prev_numeric || r.views_baseline_numeric || r.views || 0) || curr);
         const riseAbs = Math.max(0, curr - prev);
         bucket.videos.push(r);
         bucket.totalRiseAbs += riseAbs;
         bucket.totalViews += curr;
         // 대표 영상: 현재 조회수 최대
         if (!bucket.representative) bucket.representative = r; else {
-            const curRepViews = parseCount(bucket.representative.views_numeric || bucket.representative.views || 0) || 0;
+            const curRepViews = bucket.representative.__viewsCurr != null ? bucket.representative.__viewsCurr : (parseCount(bucket.representative.views_numeric || bucket.representative.views || 0) || 0);
             if (curr > curRepViews) bucket.representative = r;
         }
     }
     for (const bucket of map.values()) {
-        const pcts = bucket.videos.map(v => computeChangePct(v));
+        const pcts = bucket.videos.map(v => (v.__pct != null ? v.__pct : computeChangePct(v)));
         bucket.avgRisePct = pcts.length ? (pcts.reduce((a,b)=>a+b,0) / pcts.length) : 0;
     }
-    return Array.from(map.values());
+    const out = Array.from(map.values());
+    const t1 = performance.now();
+    console.info(`[perf] groupByChannel: ${(t1 - t0).toFixed(0)}ms, channels=${out.length}, rows=${rows.length}`);
+    return out;
 }
 
 function renderChannelView() {
+    const t0 = performance.now();
     ensureTableSkeleton('channel');
     if (!videoTableBody) return;
 
@@ -617,6 +689,8 @@ function renderChannelView() {
     }).join('');
 
     videoTableBody.innerHTML = html;
+    const t1 = performance.now();
+    console.info(`[perf] renderChannelView: ${(t1 - t0).toFixed(0)}ms, pageRows=${pageRows.length}`);
 }
 
 function getTotalPages() {
@@ -647,7 +721,13 @@ function renderPagination() {
 // --------- 이벤트 ---------
 [searchInput, formTypeFilter, startDateFilter, endDateFilter].forEach(el => {
     if (el) {
-        el.addEventListener('input', filterAndRender);
+        // 검색 인풋은 디바운스 적용
+        if (el === searchInput) {
+            const debounced = debounce(() => filterAndRender(false), 250);
+            el.addEventListener('input', debounced);
+        } else {
+            el.addEventListener('input', filterAndRender);
+        }
         if (el.tagName === 'SELECT' || el.type === 'date') el.addEventListener('change', filterAndRender);
     }
 });
