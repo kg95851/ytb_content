@@ -1079,6 +1079,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  showAnalysisBanner(`대본 추출 시작 (${ids.length}개)`);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
     const { data: row, error } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
@@ -1090,13 +1091,15 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
       const transcript = await fetchTranscriptByUrl(url);
       await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
+      appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
     } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
+      appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
       throw e;
     }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
@@ -1107,6 +1110,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
+  showAnalysisBanner(`조회수 갱신 시작 (${ids.length}개)`);
   const onlyMissing = !!ytViewsOnlyMissing?.checked;
   const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
   const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
@@ -1145,9 +1149,10 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
     if (!baseline) patch.views_baseline_numeric = current; // 최초 1회만 베이스라인 세팅
     try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
     catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
+    appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
@@ -1156,6 +1161,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
 ytTranscriptAllBtn?.addEventListener('click', async () => {
   if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
+  showAnalysisBanner('전체 대본 추출 시작');
   const ids = currentData.map(v => v.id);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   const worker = async (id) => {
@@ -1168,13 +1174,15 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       const transcript = await fetchTranscriptByUrl(url);
       await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
+      appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
     } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
+      appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
       throw e;
     }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
@@ -1183,6 +1191,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
+  showAnalysisBanner('전체 조회수 갱신 시작');
   const ids = currentData.map(v => v.id);
   const onlyMissing = !!ytViewsOnlyMissing?.checked;
   const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
@@ -1222,9 +1231,10 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     if (!baseline) patch.views_baseline_numeric = current;
     try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
     catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
+    appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({pct, etaSec}) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
