@@ -393,7 +393,7 @@ def _update_views_for_videos(sb, ids: List[str]) -> int:
 
 def _process_job_batch(sb, job: Dict[str, Any], batch_size: int = 3) -> Dict[str, Any]:
     scope = job.get('scope')
-    remaining = list(job.get('remaining_ids') or job.get('remainingIds') or job.get('ids') or [])
+    remaining = list(job.get('remaining_ids') or job.get('ids') or job.get('remainingIds') or [])
     if scope == 'all' and not remaining:
         # snapshot all video ids
         res = sb.table('videos').select('id').execute()
@@ -453,6 +453,37 @@ def cron_analyze():
             due.extend(getattr(r2, 'data', []) or [])
         except Exception:
             pass
+        # schema v3 fallback: minimal table with (id, date, content)
+        if not due:
+            try:
+                r3 = sb.table('schedules').select('id,date,content,created_at').execute()
+                rows = getattr(r3, 'data', []) or []
+                for row in rows:
+                    try:
+                        cfg = json.loads(row.get('content') or '{}')
+                    except Exception:
+                        cfg = {}
+                    status = cfg.get('status', 'pending')
+                    run_at = cfg.get('run_at') or row.get('date')
+                    if status in ('pending','running') and run_at:
+                        row['status'] = status
+                        row['run_at'] = run_at
+                        row['scope'] = cfg.get('scope', 'all')
+                        row['type'] = cfg.get('type', 'analysis')
+                        row['remaining_ids'] = cfg.get('remaining_ids') or cfg.get('ids') or []
+                        # 시간 조건
+                        try:
+                            ts = int(run_at)
+                            if ts <= now:
+                                due.append(row)
+                        except Exception:
+                            try:
+                                if run_at <= iso_now:
+                                    due.append(row)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
         # de-duplicate by id if both queries returned rows
         seen = set(); unique = []
         for row in due:
