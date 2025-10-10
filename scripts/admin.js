@@ -753,7 +753,7 @@ function renderSchedulesTable(rows) {
         <tr data-id="${r.id}">
           <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
           <td>${r.id}</td>
-          <td>${r.type === 'ranking' ? '랭킹' : '분석'}</td>
+          <td>${r.type === 'ranking' ? '랭킹' : (r.type === 'analysis' ? '분석' : r.type)}</td>
           <td>${r.scope === 'all' ? '전체' : `선택(${(r.ids||[]).length})`}</td>
           <td>${r.run_at ? new Date(r.run_at).toLocaleString() : ''}</td>
           <td>${r.status}</td>
