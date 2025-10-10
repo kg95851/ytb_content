@@ -10,6 +10,115 @@ except Exception:
     _load_sb = None
     _analyze_video = None
 
+# --- Fallback implementations if import fails ---
+if _load_sb is None or _analyze_video is None:
+    try:
+        from supabase import create_client
+    except Exception:
+        create_client = None
+
+    import requests
+
+    def _load_sb():  # type: ignore
+        if create_client is None:
+            raise RuntimeError('supabase client not available')
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_ANON_KEY')
+        if not url or not key:
+            raise RuntimeError('Missing SUPABASE_URL or SUPABASE_*_KEY env')
+        return create_client(url, key)
+
+    def _call_gemini(system_prompt: str, user_content: str) -> str:
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            raise RuntimeError('GEMINI_API_KEY not set')
+        model = 'models/gemini-1.5-pro-latest'
+        url = f'https://generativelanguage.googleapis.com/v1beta/{model}:generateContent?key={api_key}'
+        payload = {
+            'contents': [
+                { 'role': 'user', 'parts': [{ 'text': f"{system_prompt}\n\n{user_content}" }] }
+            ],
+            'generationConfig': { 'temperature': 0.3 }
+        }
+        res = requests.post(url, json=payload, timeout=90)
+        res.raise_for_status()
+        data = res.json()
+        return data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+
+    def _build_material_prompt() -> str:
+        return '다음 대본의 핵심 소재를 한 문장으로 요약하세요. 반드시 한 줄로만, "소재: "로 시작하여 출력하세요. 다른 설명이나 불필요한 문자는 금지합니다.'
+
+    def _build_hooking_prompt() -> str:
+        return (
+            '다음 대본에서 시청자의 관심을 끄는 핵심 후킹 요소를 1~3개 추려 한국어로 간결하게 작성하세요.\n'
+            '출력 형식: "후킹 요소: ..." 한 줄(여러 개면 \' · \'로 구분). 다른 텍스트 금지.'
+        )
+
+    def _build_structure_prompt() -> str:
+        return (
+            '다음 대본을 기승전결 구조로 요약하세요. 각 단계는 1문장 이내로 간결히.\n'
+            '출력 형식:\n기: ...\n승: ...\n전: ...\n결: ...\n다른 텍스트 금지.'
+        )
+
+    def _clean_sentences_ko(text: str):
+        t = (text or '')
+        # remove brackets and markers
+        import re
+        t = re.sub(r"\[[^\]]*\]", " ", t)
+        t = re.sub(r"^\s*>>.*", " ", t, flags=re.MULTILINE)
+        t = re.sub(r"\b(음악|박수|웃음|침묵|배경음|기침)\b", " ", t, flags=re.IGNORECASE)
+        t = t.replace('\r', '\n')
+        t = re.sub(r"\n{2,}", "\n", t)
+        t = re.sub(r"[\t ]{2,}", " ", t)
+        # Korean sentence ending hints
+        t = re.sub(r"(요|다|죠|네|습니다|습니까|네요|군요)([.!?])", r"\1\2\n", t)
+        # split
+        parts = re.split(r"(?<=[.!?…]|\n)\s+", t)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        # merge short
+        out = []
+        buf = ''
+        MIN = 10
+        for p in parts:
+            cur = (buf + ' ' + p).strip() if buf else p
+            if len(cur) < MIN:
+                buf = cur
+                continue
+            out.append(cur)
+            buf = ''
+        if buf:
+            out.append(buf)
+        # remove noise
+        out = [s for s in out if len(re.sub(r"[^\w\d가-힣]", "", s)) >= 3]
+        return out[:300]
+
+    def _estimate_dopamine(sentence: str) -> int:
+        s = (sentence or '').lower()
+        score = 3
+        if any(k in s for k in ['충격', '반전', '경악', '미친', '대폭', '폭로', '소름', '!', '?']):
+            score += 5
+        return max(1, min(10, score))
+
+    def _analyze_video(doc):  # type: ignore
+        transcript = (doc or {}).get('transcript_text') or ''
+        if not transcript:
+            raise RuntimeError('no transcript_text in DB')
+        # prompts
+        material = _call_gemini(_build_material_prompt(), transcript)
+        hooking = _call_gemini(_build_hooking_prompt(), transcript)
+        structure = _call_gemini(_build_structure_prompt(), transcript)
+        # dopamine graph (local)
+        sentences = _clean_sentences_ko(transcript)
+        dopamine_graph = [{ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' } for s in sentences]
+        return {
+            'material': (material or '').strip()[:2000],
+            'hooking': (hooking or '').strip()[:2000],
+            'narrative_structure': (structure or '').strip()[:4000],
+            'dopamine_graph': dopamine_graph,
+            'analysis_transcript_len': len(transcript),
+            'last_modified': int(time.time()*1000)
+        }
+
 app = Flask(__name__)
 
 @app.after_request
