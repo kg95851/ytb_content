@@ -728,8 +728,18 @@ if (exportJsonBtn) {
 // ---------- Schedules ----------
 async function createSchedule(scope, ids, runAt, forceType) {
   const type = forceType || (document.querySelector('input[name="schedule-type"]:checked')?.value) || 'analysis';
-  const payload = { scope, run_at: new Date(runAt).toISOString(), type, status:'pending', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  if (scope === 'selected') payload.remaining_ids = ids; // 테이블에 ids 컬럼이 없을 수 있으므로 remaining_ids 사용
+  const nowIso = new Date().toISOString();
+  const cfg = {
+    type,
+    scope,
+    remaining_ids: scope === 'selected' ? ids : [],
+    status: 'pending',
+    run_at: new Date(runAt).toISOString(),
+    created_at: nowIso,
+    updated_at: nowIso
+  };
+  // 최소 스키마(id, date, content, created_at)에 맞춰 저장
+  const payload = { date: cfg.run_at, content: JSON.stringify(cfg), created_at: nowIso };
   const { data, error } = await supabase.from('schedules').insert(payload).select('id').single();
   if (error) throw error; return data.id;
 }
