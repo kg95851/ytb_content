@@ -42,9 +42,13 @@ def analyze_one():
         if not rows:
             return jsonify({ 'ok': False, 'error': 'not_found' }), 404
         video = rows[0]
-        updated = _analyze_video(video)
+        updated = _analyze_video(video) or {}
         if updated:
-            sb.table('videos').update(updated).eq('id', vid).execute()
+            # 스키마에 없는 컬럼은 제거
+            allowed = set(video.keys())
+            payload = { k: v for k, v in updated.items() if k in allowed }
+            if payload:
+                sb.table('videos').update(payload).eq('id', vid).execute()
         return jsonify({ 'ok': True, 'updated': bool(updated) })
     except Exception as e:
         return jsonify({ 'ok': False, 'error': str(e) }), 500
