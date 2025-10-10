@@ -567,3 +567,29 @@ def health():
     return ('ok', 200)
 
 
+@app.route('/analyze_one', methods=['POST'])
+@app.route('/api/analyze_one', methods=['POST'])
+def analyze_one():
+    try:
+        sb = _load_sb()
+        body = {}
+        try:
+            body = request.get_json(force=True) or {}
+        except Exception:
+            body = {}
+        vid = str(body.get('id') or request.args.get('id') or '').strip()
+        if not vid:
+            return jsonify({ 'ok': False, 'error': 'missing id' }), 400
+        row = sb.table('videos').select('*').eq('id', vid).limit(1).execute()
+        rows = getattr(row, 'data', []) or []
+        if not rows:
+            return jsonify({ 'ok': False, 'error': 'not_found' }), 404
+        video = rows[0]
+        updated = _analyze_video(video)
+        if updated:
+            sb.table('videos').update(updated).eq('id', vid).execute()
+        return jsonify({ 'ok': True, 'updated': bool(updated) })
+    except Exception as e:
+        return jsonify({ 'ok': False, 'error': str(e) }), 500
+
+
