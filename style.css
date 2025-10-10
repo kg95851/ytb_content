@@ -220,7 +220,8 @@ a:hover { color: #87ceeb; }
     gap: 1.5rem;
     margin-bottom: 2.5rem;
     padding: 1rem;
-    background-color: #f9fafb;
+    background-color: #0b1326; /* 다크 톤 */
+    border: 1px solid var(--border-color);
     border-radius: var(--radius);
 }
 
@@ -252,7 +253,7 @@ a:hover { color: #87ceeb; }
 }
 
 .detail-item {
-    background-color: #f9fafb;
+    background-color: #0b1326; /* 다크 박스 */
     padding: 1rem;
     border-radius: var(--radius);
     border: 1px solid var(--border-color);
@@ -264,7 +265,8 @@ a:hover { color: #87ceeb; }
     max-height: 280px;
     overflow: auto;
     white-space: pre; /* 가로 스크롤 허용 */
-    background: #fff;
+    background: #0b1326;
+    color: var(--text-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 12px;
@@ -278,7 +280,7 @@ a:hover { color: #87ceeb; }
     margin-top: .5rem;
 }
 .analysis-card {
-    background: #fff;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     box-shadow: var(--shadow);
@@ -287,7 +289,7 @@ a:hover { color: #87ceeb; }
     overflow: hidden;
 }
 .analysis-card-header {
-    background: #f9fafb;
+    background: #0b1326;
     padding: .75rem 1rem;
     font-weight: 600;
     border-bottom: 1px solid var(--border-color);
@@ -309,7 +311,7 @@ a:hover { color: #87ceeb; }
     margin-top: .5rem;
 }
 .keyword-card {
-    background: #fff;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     box-shadow: var(--shadow);
@@ -318,7 +320,7 @@ a:hover { color: #87ceeb; }
     overflow: hidden;
 }
 .keyword-card-header {
-    background: #f9fafb;
+    background: #0b1326;
     padding: .75rem 1rem;
     font-weight: 600;
     border-bottom: 1px solid var(--border-color);
