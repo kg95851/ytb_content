@@ -1014,7 +1014,13 @@ async function runAnalysisForIds(ids) {
       const { data: row } = await supabase.from('videos').select('*').eq('id', id).single();
       if (!row) { failed++; continue; }
       const { updated } = await analyzeOneVideo({ id, ...row });
-      const payload = { ...updated }; delete payload.id;
+      // 스키마에 없는 컬럼은 제거해서 업데이트 오류 방지
+      const allowed = new Set(Object.keys(row || {}));
+      const payload = {};
+      for (const [k, v] of Object.entries(updated)) {
+        if (k === 'id') continue;
+        if (allowed.has(k)) payload[k] = v;
+      }
       const { error: upErr } = await supabase.from('videos').update(payload).eq('id', id);
       if (upErr) throw upErr;
       done++; analysisStatus.textContent = `진행중... ${done}/${ids.length}`; updateAnalysisProgress(done, ids.length, row.title || id); appendAnalysisLog(`(${id}) 저장 완료`);
