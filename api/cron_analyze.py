@@ -86,6 +86,17 @@ def _build_keywords_prompt() -> str:
 def _build_material_prompt() -> str:
     return '다음 대본의 핵심 소재를 한 문장으로 요약하세요. 반드시 한 줄로만, "소재: "로 시작하여 출력하세요. 다른 설명이나 불필요한 문자는 금지합니다.'
 
+def _build_hooking_prompt() -> str:
+    return (
+        '다음 대본에서 시청자의 관심을 끄는 핵심 후킹 요소를 1~3개 추려 한국어로 간결하게 작성하세요.\n'
+        '출력 형식: "후킹 요소: ..." 한 줄(여러 개면 \' · \'로 구분). 다른 텍스트 금지.'
+    )
+
+def _build_structure_prompt() -> str:
+    return (
+        '다음 대본을 기승전결 구조로 요약하세요. 각 단계는 1문장 이내로 간결히.\n'
+        '출력 형식:\n기: ...\n승: ...\n전: ...\n결: ...\n다른 텍스트 금지.'
+    )
 
 def _build_dopamine_prompt(sentences: List[str]) -> str:
     header = '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.'
@@ -229,7 +240,10 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     sentences = _split_sentences(transcript)
     # Material
     material_only = _call_gemini(_build_material_prompt(), transcript)
-    # Analysis
+    # Hooking & Structure (간단 요약)
+    hooking_text = _call_gemini(_build_hooking_prompt(), transcript)
+    structure_text = _call_gemini(_build_structure_prompt(), transcript)
+    # Analysis(카드/세부)
     analysis_text = _call_gemini(_build_analysis_prompt(), transcript)
     # Categories
     categories_text = _call_gemini(_build_category_prompt(), transcript)
@@ -266,6 +280,11 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     updated['dopamine_graph'] = dopamine_graph
     updated['analysis_transcript_len'] = len(transcript)
     updated['transcript_text'] = transcript
+    # hooking & structure
+    if hooking_text:
+        updated['hooking'] = hooking_text.strip()[:1000]
+    if structure_text:
+        updated['narrative_structure'] = structure_text.strip()[:2000]
 
     # categories
     updated['kr_category_large'] = _extract_line(r"한국\s*대\s*카테고리\s*[:：]\s*(.+)", categories_text) or doc.get('kr_category_large')
