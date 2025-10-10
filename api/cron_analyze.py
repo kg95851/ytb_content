@@ -222,7 +222,10 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     youtube_url = doc.get('youtube_url')
     if not youtube_url:
         return {}
-    transcript = _fetch_transcript(youtube_url, ['ko', 'en'])
+    # 우선 DB에 저장된 대본을 사용하고, 없을 때만 원격 자막/자동생성 자막을 시도
+    transcript = str(doc.get('transcript_text') or '').strip()
+    if not transcript:
+        transcript = _fetch_transcript(youtube_url, ['ko', 'en'])
     sentences = _split_sentences(transcript)
     # Material
     material_only = _call_gemini(_build_material_prompt(), transcript)
