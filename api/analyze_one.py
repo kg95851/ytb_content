@@ -32,18 +32,41 @@ if _load_sb is None or _analyze_video is None:
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise RuntimeError('GEMINI_API_KEY not set')
-        model = 'models/gemini-1.5-pro-latest'
-        url = f'https://generativelanguage.googleapis.com/v1beta/{model}:generateContent?key={api_key}'
+        prefer = os.getenv('GEMINI_MODEL')
+        candidates = [
+            *( [prefer] if prefer else [] ),
+            'models/gemini-2.5-flash',
+            'models/gemini-2.0-flash-exp',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-pro-latest',
+        ]
         payload = {
             'contents': [
                 { 'role': 'user', 'parts': [{ 'text': f"{system_prompt}\n\n{user_content}" }] }
             ],
             'generationConfig': { 'temperature': 0.3 }
         }
-        res = requests.post(url, json=payload, timeout=90)
-        res.raise_for_status()
-        data = res.json()
-        return data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+        base = 'https://generativelanguage.googleapis.com'
+        errors = []
+        for api_ver in ('v1', 'v1beta'):
+            for model in candidates:
+                if not model:
+                    continue
+                url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
+                try:
+                    res = requests.post(url, json=payload, timeout=90)
+                    if res.status_code == 404:
+                        errors.append(f"{api_ver}/{model}:404")
+                        continue
+                    res.raise_for_status()
+                    data = res.json()
+                    text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                    if text:
+                        return text
+                except Exception as e:
+                    errors.append(f"{api_ver}/{model}:{str(e)[:80]}")
+                    continue
+        raise RuntimeError('Gemini request failed: ' + '; '.join(errors))
 
     def _build_material_prompt() -> str:
         return '다음 대본의 핵심 소재를 한 문장으로 요약하세요. 반드시 한 줄로만, "소재: "로 시작하여 출력하세요. 다른 설명이나 불필요한 문자는 금지합니다.'
