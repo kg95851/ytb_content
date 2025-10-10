@@ -985,6 +985,32 @@ function estimateDopamineLocal(sentence) {
   return Math.max(1, Math.min(10, score));
 }
 
+function cleanTranscriptToSentences(text) {
+  let t = String(text || '');
+  // 제거: 대괄호 안내, >>, 무음/음악 등
+  t = t.replace(/\[[^\]]*\]/g, ' ')
+       .replace(/^\s*>>.*/gm, ' ')
+       .replace(/\b(음악|박수|웃음|침묵|배경음|기침)\b/gi, ' ');
+  // 공백 정리
+  t = t.replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').replace(/[\t ]{2,}/g, ' ');
+  // 한국어 종결어미 기반 문장 경계 보정: "요./다./죠./네./습니다/습니까/네요/군요" 뒤에 개행 삽입
+  t = t.replace(/(요|다|죠|네|습니다|습니까|네요|군요)([.!?])/g, '$1$2\n');
+  // 문장 분할
+  let parts = t.split(/(?<=[.!?…]|\n)\s+/).map(s => s.trim()).filter(Boolean);
+  // 너무 짧은 조각 병합
+  const out = [];
+  let buf = '';
+  const MIN = 10;
+  for (const p of parts) {
+    const cur = (buf ? buf + ' ' : '') + p;
+    if (cur.length < MIN) { buf = cur; continue; }
+    out.push(cur); buf = '';
+  }
+  if (buf) out.push(buf);
+  // 노이즈 라인 제거
+  return out.filter(s => s.replace(/[^\p{L}\p{N}]/gu, '').length >= 3);
+}
+
 async function analyzeOneVideo(video) {
   // 저장된 대본만 사용. 재추출하지 않음
   appendAnalysisLog(`(${video.id}) 저장된 대본 사용...`);
@@ -992,9 +1018,10 @@ async function analyzeOneVideo(video) {
   if (!transcript) {
     throw new Error('대본 없음: 먼저 대본 추출을 실행해야 합니다.');
   }
-  const sentences = transcript.split(/(?<=[.!?…])\s+/).filter(Boolean);
-  const sample = sentences.filter((_, i) => i % 10 === 0);
-  const dopamine_graph = sample.map(s => ({ sentence: s, level: estimateDopamineLocal(s), reason: 'heuristic' }));
+  const sentences = cleanTranscriptToSentences(transcript);
+  const MAX = 300;
+  const take = sentences.slice(0, MAX);
+  const dopamine_graph = take.map(s => ({ sentence: s, level: estimateDopamineLocal(s), reason: 'heuristic' }));
   const updated = {
     id: video.id,
     analysis_transcript_len: transcript.length,
