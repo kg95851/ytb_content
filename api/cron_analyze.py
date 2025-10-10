@@ -456,7 +456,7 @@ def cron_analyze():
         # schema v3 fallback: minimal table with (id, date, content)
         if not due:
             try:
-                r3 = sb.table('schedules').select('id,date,content,created_at').execute()
+                r3 = sb.table('schedules').select('id,content,created_at').execute()
                 rows = getattr(r3, 'data', []) or []
                 for row in rows:
                     try:
@@ -464,7 +464,7 @@ def cron_analyze():
                     except Exception:
                         cfg = {}
                     status = cfg.get('status', 'pending')
-                    run_at = cfg.get('run_at') or row.get('date')
+                    run_at = cfg.get('run_at')
                     if status in ('pending','running') and run_at:
                         row['status'] = status
                         row['run_at'] = run_at
