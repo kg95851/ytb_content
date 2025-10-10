@@ -4,6 +4,7 @@ import { supabase } from '../supabase-client.js';
 const videoTableContainer = document.getElementById('video-table-container');
 let videoTableBody = document.getElementById('video-table-body');
 const paginationContainer = document.getElementById('pagination-container');
+const loadMoreBtn = document.getElementById('load-more-btn');
 const searchInput = document.getElementById('searchInput');
 const formTypeFilter = document.getElementById('form-type-filter');
 const startDateFilter = document.getElementById('start-date-filter');
@@ -35,15 +36,8 @@ const DB_CONCURRENCY = 4;            // 병렬 요청 개수
 const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
 const LIVE_SYNC_INTERVAL_MS = 5000;  // 실시간 증분 동기화 주기 (5초)
 const SKIP_CACHE_ON_FIRST_LOAD = true; // 첫 진입 시 캐시 무시하고 항상 최신 로드
-// 필요한 컬럼만 선택하여 페이로드 최소화
-const VIDEO_COLUMNS = [
-    'id', 'title', 'channel', 'date', 'youtube_url', 'thumbnail',
-    'views', 'views_numeric', 'views_prev_numeric', 'views_baseline_numeric',
-    'views_last_checked_at', 'last_modified', 'subscribers', 'subscribers_numeric',
-    // 검색/필터 필드
-    'kr_category_large', 'kr_category_medium', 'kr_category_small',
-    'material', 'template_type', 'group_name', 'source_type', 'hooking', 'narrative_structure'
-].join(',');
+// 스키마 변경/추가 컬럼 호환을 위해 우선 전체 컬럼을 선택
+const VIDEO_COLUMNS = '*';
 
 // 상태
 let allVideos = [];
@@ -321,6 +315,7 @@ async function fetchVideos() {
             const cached = await getCached();
             if (cached?.data?.length) {
                 allVideos = cached.data || [];
+                precomputeNumericFields(allVideos);
                 filterAndRender();
                 loadedOk = true;
                 return;
@@ -381,7 +376,7 @@ async function fetchAllFromSupabase() {
                 .select(VIDEO_COLUMNS)
                 .order('date', { ascending: false })
                 .range(offset, offset + DB_FETCH_BATCH - 1);
-            if (error) break;
+            if (error) { console.error('fetchAllFromSupabase page error', error); break; }
             const batch = Array.isArray(data) ? data : [];
             if (!batch.length) break;
             out.push(...batch);
@@ -406,7 +401,7 @@ async function fetchAllFromSupabase() {
                 .select(VIDEO_COLUMNS)
                 .order('date', { ascending: false })
                 .range(from, to);
-            if (error) return [];
+            if (error) { console.error('fetchAllFromSupabase range error', error); return []; }
             return Array.isArray(data) ? data : [];
         }));
         chunk.forEach(arr => results.push(...arr));
