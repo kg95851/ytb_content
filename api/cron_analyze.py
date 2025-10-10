@@ -261,20 +261,41 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not transcript:
         transcript = _fetch_transcript(youtube_url, ['ko', 'en'])
     sentences = _split_sentences(transcript)
-    # Material
-    material_only = _call_gemini(_build_material_prompt(), transcript)
-    # Hooking & Structure (간단 요약)
-    hooking_text = _call_gemini(_build_hooking_prompt(), transcript)
-    structure_text = _call_gemini(_build_structure_prompt(), transcript)
+    # Material/Hooking/Structure in parallel
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
+    tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+    jobs = {
+        'material': (_build_material_prompt(), tshort),
+        'hooking': (_build_hooking_prompt(), tshort),
+        'structure': (_build_structure_prompt(), tshort)
+    }
+    material_only = ''
+    hooking_text = ''
+    structure_text = ''
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        fut_map = { ex.submit(_call_gemini, p, txt): name for name, (p, txt) in jobs.items() }
+        for fut in as_completed(fut_map):
+            name = fut_map[fut]
+            try:
+                val = (fut.result() or '').strip()
+            except Exception:
+                val = ''
+            if name == 'material':
+                material_only = val
+            elif name == 'hooking':
+                hooking_text = val
+            elif name == 'structure':
+                structure_text = val
     # Analysis(카드/세부)
-    analysis_text = _call_gemini(_build_analysis_prompt(), transcript)
+    analysis_text = _call_gemini(_build_analysis_prompt(), tshort)
     # Categories
     categories_text = _call_gemini(_build_category_prompt(), transcript)
     # Keywords
     keywords_text = _call_gemini(_build_keywords_prompt(), f"제목:\n{doc.get('title','')}\n\n대본:\n{transcript}")
-    # Dopamine (batch into chunks of 30)
+    # Dopamine (batch into chunks of 50, fewer calls)
     dopamine_graph: List[Dict[str, Any]] = []
-    batch = 30
+    batch = 50
     for i in range(0, len(sentences), batch):
         sub = sentences[i:i+batch]
         text = _call_gemini(_build_dopamine_prompt(sub), '')
@@ -287,8 +308,8 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
                 level = 1
             level = max(1, min(10, level))
             dopamine_graph.append({ 'sentence': s, 'level': level, 'reason': str(item.get('reason') or '') })
-        # Soft rate limit
-        time.sleep(0.2)
+        # reduced rate delay
+        time.sleep(0.05)
 
     # Post processing
     def _extract_line(regex: str, text: str) -> str:
