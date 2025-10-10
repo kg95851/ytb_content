@@ -34,7 +34,7 @@ const PAGE_BATCH = 200;              // 페이지 표시 200개
 const DB_FETCH_BATCH = 1000;         // Supabase 요청당 최대 1000 권장
 const DB_CONCURRENCY = 4;            // 병렬 요청 개수
 const FETCH_ALL_FROM_DB = true;      // DB에서 전량 로드 모드(페이지네이션은 클라이언트 분할)
-const LIVE_SYNC_INTERVAL_MS = 5000;  // 실시간 증분 동기화 주기 (5초)
+const LIVE_SYNC_INTERVAL_MS = 2000;  // 실시간 증분 동기화 주기 (2초)
 const SKIP_CACHE_ON_FIRST_LOAD = true; // 첫 진입 시 캐시 무시하고 항상 최신 로드
 // 스키마 변경/추가 컬럼 호환을 위해 우선 전체 컬럼을 선택
 const VIDEO_COLUMNS = '*';
@@ -266,19 +266,29 @@ function getLocalLatestTs() {
 
 async function pollLatestAndSync() {
     try {
-        const { data } = await supabase
-            .from('videos')
-            .select('last_modified')
-            .order('last_modified', { ascending: false })
-            .limit(1);
+        // 1) 증분 변경 감지: last_modified 최대값
+        const { data } = await supabase.from('videos').select('last_modified').order('last_modified', { ascending: false }).limit(1);
         const remoteTs = Number((data && data[0]?.last_modified) || 0) || 0;
         const localTs = getLocalLatestTs();
         if (remoteTs > localTs) await syncIncrementalUpdates(localTs);
+        // 2) 최신 N개 푸시 업데이트(상위 목록 즉시 반영)
+        const TOP_N = 300;
+        const { data: top } = await supabase.from('videos').select('*').order('last_modified', { ascending: false }).limit(TOP_N);
+        if (Array.isArray(top) && top.length) {
+            const map = new Map(allVideos.map(v => [v.id, v]));
+            for (const r of top) map.set(r.id, r);
+            allVideos = Array.from(map.values());
+            precomputeNumericFields(allVideos);
+            setCached(allVideos);
+            filterAndRender(true);
+        }
     } catch {}
 }
 
 function startLiveSync() {
     if (liveSyncTimer) return;
+    // 즉시 1회 실행 후 주기 반복
+    pollLatestAndSync();
     liveSyncTimer = setInterval(pollLatestAndSync, LIVE_SYNC_INTERVAL_MS);
 }
 
