@@ -228,23 +228,39 @@ def transcript_root():
                 try:
                     fetched = ytt_api.fetch(vid)
                 except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as e:
-                    return jsonify({ 'error': 'no_transcript', 'detail': str(e) }), 404
+                    error_msg = str(e)
+                    fetched = None
                 except Exception as e:
                     if 'RequestBlocked' in str(e) or 'IpBlocked' in str(e):
                         return jsonify({ 'error': 'ip_blocked', 'detail': 'YouTube blocked the request. Configure proxy settings.' }), 429
-                    return jsonify({ 'error': 'fetch_error', 'detail': str(e) }), 502
+                    error_msg = str(e)
+                    fetched = None
             
-            # Extract text from fetched transcript
-            text = '\n'.join([snip.text for snip in fetched if getattr(snip, 'text', '')])
+            # If we still don't have text, fallback to STT (Deepgram) using YoutubeDL audio URL
+            text = ''
+            if fetched:
+                text = '\n'.join([snip.text for snip in fetched if getattr(snip, 'text', '')])
+            if not text.strip():
+                try:
+                    if YoutubeDL is None:
+                        raise RuntimeError('yt-dlp not available')
+                    with YoutubeDL({'quiet': True, 'skip_download': True, 'nocheckcertificate': True}) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                    audio_url = _pick_audio_url(info) if info else ''
+                    stt = _stt_with_deepgram(audio_url, preferred_langs)
+                    text = stt.get('text', '') if isinstance(stt, dict) else ''
+                except Exception:
+                    text = ''
             
             if text.strip():
                 return jsonify({ 
                     'text': text, 
                     'lang': getattr(fetched, 'language_code', None),
-                    'ext': 'transcript'
+                    'ext': 'transcript' if fetched else 'stt'
                 }), 200
             else:
-                return jsonify({ 'error': 'empty_transcript' }), 404
+                # choose best error message
+                return jsonify({ 'error': 'no_transcript_or_stt', 'detail': error_msg or 'empty' }), 404
                 
         except Exception as e:
             # Generic error handling
