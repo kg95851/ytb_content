@@ -13,6 +13,9 @@
       "memory": 512
     }
   },
+  "env": {
+    "GEMINI_MODEL": "models/gemini-2.5-flash"
+  },
   "crons": [
     { "path": "/api/cron_analyze", "schedule": "0 2 * * *" }
   ],
