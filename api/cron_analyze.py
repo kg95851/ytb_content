@@ -424,10 +424,22 @@ def _process_job_batch(sb, job: Dict[str, Any], batch_size: int = 3) -> Dict[str
         patch.update({ 'status': 'running', 'remaining_ids': left })
     else:
         patch.update({ 'status': 'done', 'remaining_ids': [] })
+    # Try column update; if schema is minimal, merge into content JSON
     try:
         sb.table('schedules').update(patch).eq('id', job['id']).execute()
     except Exception:
-        pass
+        try:
+            cur = sb.table('schedules').select('content').eq('id', job['id']).limit(1).execute()
+            rows = getattr(cur, 'data', []) or []
+            content_raw = rows[0].get('content') if rows else None
+            try:
+                cfg = json.loads(content_raw or '{}')
+            except Exception:
+                cfg = {}
+            cfg.update(patch)
+            sb.table('schedules').update({ 'content': json.dumps(cfg) }).eq('id', job['id']).execute()
+        except Exception:
+            pass
     return patch
 
 
@@ -500,7 +512,21 @@ def cron_analyze():
         time_budget_sec = int(os.getenv('RANKING_TIME_BUDGET', '40') or '40')
         for job in due:
             # take lease: set running
-            sb.table('schedules').update({ 'status': 'running', 'updatedAt': now }).eq('id', job['id']).execute()
+            try:
+                sb.table('schedules').update({ 'status': 'running', 'updated_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z' }).eq('id', job['id']).execute()
+            except Exception:
+                try:
+                    cur = sb.table('schedules').select('content').eq('id', job['id']).limit(1).execute()
+                    rows = getattr(cur, 'data', []) or []
+                    content_raw = rows[0].get('content') if rows else None
+                    try:
+                        cfg = json.loads(content_raw or '{}')
+                    except Exception:
+                        cfg = {}
+                    cfg.update({ 'status': 'running', 'updated_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z' })
+                    sb.table('schedules').update({ 'content': json.dumps(cfg) }).eq('id', job['id']).execute()
+                except Exception:
+                    pass
             if job.get('type') == 'ranking':
                 deadline = time.time() + max(5, time_budget_sec)
                 while time.time() < deadline:
@@ -512,16 +538,17 @@ def cron_analyze():
                 # chain next job: analysis
                 try:
                     if job.get('status') == 'done':
-                        chain = {
+                        now_iso2 = __import__('datetime').datetime.utcnow().isoformat() + 'Z'
+                        cfg = {
                             'type': 'analysis',
                             'scope': job.get('scope'),
-                            'ids': job.get('ids') or None,
+                            'remaining_ids': job.get('remaining_ids') or job.get('ids') or [],
                             'status': 'pending',
-                            'run_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
-                            'created_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
-                            'updated_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z'
+                            'run_at': now_iso2,
+                            'created_at': now_iso2,
+                            'updated_at': now_iso2
                         }
-                        sb.table('schedules').insert(chain).execute()
+                        sb.table('schedules').insert({ 'content': json.dumps(cfg), 'created_at': now_iso2 }).execute()
                 except Exception:
                     pass
             else:
