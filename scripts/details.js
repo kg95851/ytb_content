@@ -446,3 +446,10 @@ function drawDopamineChart(canvas, data) {
 
 // 페이지 로드 시 실행
 fetchAndDisplayDetails();
+
+// 상세 페이지에서도 최신 값 반영이 느릴 수 있어 주기적으로 갱신
+try {
+  setInterval(() => {
+    fetchAndDisplayDetails().catch(()=>{});
+  }, 2000);
+} catch {}
