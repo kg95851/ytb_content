@@ -1040,8 +1040,22 @@ async function runAnalysisForIds(ids) {
     try {
       appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
       const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      if (!res.ok) throw new Error(`http ${res.status}`);
-      const j = await res.json().catch(()=>({}));
+      let j = null; try { j = await res.json(); } catch {}
+      if (!res.ok) {
+        const stage = j && j.stage ? j.stage : '';
+        const err = j && j.error ? j.error : '';
+        const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
+        appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
+        if (trace) appendAnalysisLog(`trace: ${trace}`);
+        // 환경 변수 진단
+        try {
+          const dbgRes = await fetch('/api/analyze_one/debug');
+          const dbg = await dbgRes.json();
+          const env = dbg && dbg.env ? dbg.env : {};
+          appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
+        } catch {}
+        throw new Error(`http ${res.status} ${err || ''}`.trim());
+      }
       if (j && j.error) throw new Error(j.error);
       done++; analysisStatus.textContent = `진행중... ${done}/${ids.length}`; updateAnalysisProgress(done, ids.length, `id=${id}`); appendAnalysisLog(`(${id}) 서버 분석 완료`);
       await fetchAndDisplayData();
