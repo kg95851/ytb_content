@@ -7,11 +7,10 @@ from flask import Flask, jsonify, request
 import requests
 
 try:
-    from google.cloud import firestore
-    from google.oauth2 import service_account
+    from supabase import create_client, Client
 except Exception:
-    firestore = None
-    service_account = None
+    create_client = None
+    Client = None
 
 try:
     from youtube_transcript_api import (
@@ -38,16 +37,14 @@ def add_cors_headers(resp):
     return resp
 
 
-def _load_db():
-    if firestore is None or service_account is None:
-        raise RuntimeError('Firestore libraries not available')
-    creds_json = os.getenv('GOOGLE_CLOUD_CREDENTIALS') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-    if not creds_json:
-        raise RuntimeError('Missing GOOGLE_CLOUD_CREDENTIALS env with service account JSON')
-    info = json.loads(creds_json)
-    credentials = service_account.Credentials.from_service_account_info(info)
-    project_id = info.get('project_id')
-    return firestore.Client(project=project_id, credentials=credentials)
+def _load_sb() -> "Client":
+    if create_client is None:
+        raise RuntimeError('supabase client not available')
+    url = os.getenv('SUPABASE_URL')
+    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_ANON_KEY')
+    if not url or not key:
+        raise RuntimeError('Missing SUPABASE_URL or SUPABASE_*_KEY env')
+    return create_client(url, key)
 
 
 def _call_gemini(system_prompt: str, user_content: str) -> str:
@@ -301,27 +298,16 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     return updated
 
 
-def _get_youtube_keys(db) -> List[str]:
+def _get_youtube_keys(sb) -> List[str]:
     keys_raw = os.getenv('YOUTUBE_API_KEYS', '')
     keys = [k.strip() for k in keys_raw.split(',') if k.strip()]
     if keys:
         return keys
-    # Firestore fallback: system/settings.youtube_api_keys (newline or comma separated)
-    try:
-        snap = db.collection('system').document('settings').get()
-        if snap.exists:
-            data = snap.to_dict() or {}
-            raw = str(data.get('youtube_api_keys') or '')
-            if raw:
-                parts = [p.strip() for p in raw.replace('\r', '\n').replace(',', '\n').split('\n') if p.strip()]
-                return parts
-    except Exception:
-        pass
     return []
 
 
-def _update_views_for_videos(db, ids: List[str]) -> int:
-    keys = _get_youtube_keys(db)
+def _update_views_for_videos(sb, ids: List[str]) -> int:
+    keys = _get_youtube_keys(sb)
     if not keys:
         return 0
     import random
@@ -330,10 +316,12 @@ def _update_views_for_videos(db, ids: List[str]) -> int:
     id_map = {}
     vids = []
     for vid in ids:
-        snap = db.collection('videos').document(vid).get()
-        if not snap.exists:
+        # fetch video row from supabase
+        res = sb.table('videos').select('*').eq('id', vid).limit(1).execute()
+        rows = getattr(res, 'data', []) or []
+        if not rows:
             continue
-        data = snap.to_dict() or {}
+        data = rows[0]
         url = data.get('youtube_url') or ''
         video_id = None
         try:
@@ -369,12 +357,11 @@ def _update_views_for_videos(db, ids: List[str]) -> int:
             stats = item.get('statistics', {})
             views = int(stats.get('viewCount') or 0)
             if mapped:
-                ref = db.collection('videos').document(mapped)
-                snap = ref.get()
                 prev = 0
                 basev = 0
-                if snap.exists:
-                    old = snap.to_dict() or {}
+                # read again to compute prev/base
+                try:
+                    old = data or {}
                     def _parse_human(v):
                         try:
                             if isinstance(v, (int, float)):
@@ -387,7 +374,7 @@ def _update_views_for_videos(db, ids: List[str]) -> int:
                     prev = int(old.get('views_numeric') or 0)
                     basev = int(old.get('views_baseline_numeric') or 0)
                     orig = _parse_human(old.get('views'))
-                else:
+                except Exception:
                     orig = 0
                 # 이전값 결정: 기존 current > baseline > import original
                 prev_for_patch = prev or basev or orig
@@ -399,44 +386,48 @@ def _update_views_for_videos(db, ids: List[str]) -> int:
                 if not basev:
                     # 최초 베이스라인은 기존 current 또는 import 원본
                     patch['views_baseline_numeric'] = prev or orig or views
-                ref.set(patch, merge=True)
+                sb.table('videos').update(patch).eq('id', mapped).execute()
                 updated += 1
     return updated
 
 
-def _process_job_batch(db, job: Dict[str, Any], batch_size: int = 3) -> Dict[str, Any]:
+def _process_job_batch(sb, job: Dict[str, Any], batch_size: int = 3) -> Dict[str, Any]:
     scope = job.get('scope')
-    remaining = list(job.get('remainingIds') or job.get('ids') or [])
+    remaining = list(job.get('remaining_ids') or job.get('remainingIds') or job.get('ids') or [])
     if scope == 'all' and not remaining:
         # snapshot all video ids
-        vids = db.collection('videos').select(['title']).stream()
-        remaining = [doc.id for doc in vids]
+        res = sb.table('videos').select('id').execute()
+        rows = getattr(res, 'data', []) or []
+        remaining = [r['id'] for r in rows if r.get('id')]
     ids_to_run = remaining[:batch_size]
     left = remaining[batch_size:]
     if job.get('type') == 'ranking':
-        cnt = _update_views_for_videos(db, ids_to_run)
-        if cnt == 0:
-            db.collection('schedules').document(job['id']).set({ 'lastError': 'no_updates_or_missing_keys' }, merge=True)
+        cnt = _update_views_for_videos(sb, ids_to_run)
     else:
         for vid in ids_to_run:
             try:
-                snap = db.collection('videos').document(vid).get()
-                if not snap.exists:
+                res = sb.table('videos').select('*').eq('id', vid).limit(1).execute()
+                rows = getattr(res, 'data', []) or []
+                if not rows:
                     continue
-                video = { 'id': snap.id, **snap.to_dict() }
+                video = { 'id': vid, **rows[0] }
                 updated = _analyze_video(video)
                 if updated:
-                    db.collection('videos').document(vid).update(updated)
+                    sb.table('videos').update(updated).eq('id', vid).execute()
             except Exception as e:
-                # mark error on job for visibility
-                db.collection('schedules').document(job['id']).set({ 'lastError': str(e) }, merge=True)
+                # mark error (optional: write to jobs table when exists)
+                pass
     # update job progress
-    patch = { 'updatedAt': int(time.time()*1000) }
+    now_iso = __import__('datetime').datetime.utcnow().isoformat() + 'Z'
+    patch = { 'updated_at': now_iso }
     if left:
-        patch.update({ 'status': 'running', 'remainingIds': left })
+        patch.update({ 'status': 'running', 'remaining_ids': left })
     else:
-        patch.update({ 'status': 'done', 'remainingIds': [] })
-    db.collection('schedules').document(job['id']).set(patch, merge=True)
+        patch.update({ 'status': 'done', 'remaining_ids': [] })
+    try:
+        sb.table('schedules').update(patch).eq('id', job['id']).execute()
+    except Exception:
+        pass
     return patch
 
 
@@ -445,18 +436,30 @@ def _process_job_batch(db, job: Dict[str, Any], batch_size: int = 3) -> Dict[str
 @app.route('/api/cron_analyze', methods=['GET'])
 def cron_analyze():
     try:
-        db = _load_db()
+        sb = _load_sb()
         now = int(time.time() * 1000)
-        # Simple scan (Firestore free plan lacks complex queries across fields here)
-        rows = db.collection('schedules').stream()
+        # Schedules from supabase table 'schedules'
+        # Support both numeric ms column 'runAt' and timestamptz 'run_at'
+        from datetime import datetime, timezone
+        iso_now = datetime.now(timezone.utc).isoformat()
         due = []
-        for d in rows:
-            data = d.to_dict() or {}
-            status = data.get('status')
-            runAt = int(data.get('runAt') or 0)
-            if status in ('pending', 'running') and runAt <= now:
-                data['id'] = d.id
-                due.append(data)
+        try:
+            r1 = sb.table('schedules').select('*').in_('status', ['pending','running']).lte('runAt', now).execute()
+            due.extend(getattr(r1, 'data', []) or [])
+        except Exception:
+            pass
+        try:
+            r2 = sb.table('schedules').select('*').in_('status', ['pending','running']).lte('run_at', iso_now).execute()
+            due.extend(getattr(r2, 'data', []) or [])
+        except Exception:
+            pass
+        # de-duplicate by id if both queries returned rows
+        seen = set(); unique = []
+        for row in due:
+            rid = str(row.get('id'))
+            if rid in seen: continue
+            seen.add(rid); unique.append(row)
+        due = unique
         if not due:
             return jsonify({ 'ok': True, 'processed': 0 })
 
@@ -466,17 +469,32 @@ def cron_analyze():
         time_budget_sec = int(os.getenv('RANKING_TIME_BUDGET', '40') or '40')
         for job in due:
             # take lease: set running
-            db.collection('schedules').document(job['id']).set({ 'status': 'running', 'updatedAt': now }, merge=True)
+            sb.table('schedules').update({ 'status': 'running', 'updatedAt': now }).eq('id', job['id']).execute()
             if job.get('type') == 'ranking':
                 deadline = time.time() + max(5, time_budget_sec)
                 while time.time() < deadline:
-                    patch = _process_job_batch(db, job, batch_size=ranking_batch_size)
+                    patch = _process_job_batch(sb, job, batch_size=ranking_batch_size)
                     job['remainingIds'] = patch.get('remainingIds', job.get('remainingIds', []))
                     job['status'] = patch.get('status', job.get('status'))
                     if job['status'] == 'done' or not job.get('remainingIds'):
                         break
+                # chain next job: analysis
+                try:
+                    if job.get('status') == 'done':
+                        chain = {
+                            'type': 'analysis',
+                            'scope': job.get('scope'),
+                            'ids': job.get('ids') or None,
+                            'status': 'pending',
+                            'run_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+                            'created_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+                            'updated_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z'
+                        }
+                        sb.table('schedules').insert(chain).execute()
+                except Exception:
+                    pass
             else:
-                _process_job_batch(db, job, batch_size=analysis_batch_size)
+                _process_job_batch(sb, job, batch_size=analysis_batch_size)
             processed += 1
         return jsonify({ 'ok': True, 'processed': processed })
     except Exception as e:
