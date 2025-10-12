@@ -438,6 +438,13 @@ dataTableContainer.addEventListener('click', (e) => {
   const btnDel = e.target.closest('.single-delete-btn');
   if (btnEdit) openEditModal(btnEdit.getAttribute('data-id'));
   if (btnDel) openConfirmModal(btnDel.getAttribute('data-id'), false);
+  // 행 어디나 클릭해도 체크박스 토글 (버튼/링크/체크박스 자체는 제외)
+  const row = e.target.closest('tr[data-id]');
+  if (!row) return;
+  if (e.target.closest('.action-buttons')) return;
+  if (e.target.closest('button,a,input[type="checkbox"]')) return;
+  const cb = row.querySelector('.row-checkbox');
+  if (cb) cb.checked = !cb.checked;
 });
 
 // 페이지네이션 버튼 클릭
