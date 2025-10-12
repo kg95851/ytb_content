@@ -238,6 +238,7 @@ function ensureTableSkeleton(mode) {
                     <th>증가수</th>
                     <th>증가율</th>
                     <th>업데이트</th>
+                    <th>상태</th>
                     <th>링크</th>
                 </tr>
             </thead>
@@ -603,6 +604,9 @@ function renderVideoView() {
         const riseColor = pct >= 0 ? '#16a34a' : '#dc2626';
         const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         const lastChecked = r.update_date ? new Date(r.update_date).toLocaleDateString('ko-KR') : (r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-');
+        const analyzed = (Array.isArray(r.dopamine_graph) && r.dopamine_graph.length > 0) || r.material || r.hooking || r.narrative_structure;
+        const noT = !!(r.transcript_unavailable || !String(r.transcript_text||'').trim());
+        const statusChip = analyzed ? '<span class="group-tag" style="background:#10b981;">분석완료</span>' : (noT ? '<span class="group-tag" style="background:#6b7280;">대본없음</span>' : '');
         return `
             <tr>
             <td>${startIndex + idx + 1}</td>
@@ -614,6 +618,7 @@ function renderVideoView() {
             <td>${fmt(curr - prev)}</td>
             <td style="color:${riseColor}">${(pct>=0?'+':'') + pct.toFixed(2)}%</td>
             <td>${lastChecked}</td>
+            <td>${statusChip}</td>
             <td><a class="btn btn-details" href="${r.youtube_url || '#'}" target="_blank">YouTube</a></td>
         </tr>`;
     }).join('');
