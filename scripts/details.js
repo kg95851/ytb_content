@@ -76,37 +76,42 @@ const renderDetails = (video) => {
     const kwEN = Array.isArray(video.keywords_en) ? video.keywords_en : [];
     const kwZH = Array.isArray(video.keywords_zh) ? video.keywords_zh : [];
 
-    detailsContent.innerHTML = `
-        <div class="details-container">
-            <div class="video-player-container">
-                ${videoPlayerHTML}
-            </div>
-            <div class="details-info">
-                <h1>${video.title || '제목 없음'}</h1>
-                    <div class="details-meta-bar">
-                    <div class="meta-item"><strong>채널</strong> <span>${video.channel || '없음'}</span></div>
-                    <div class="meta-item"><strong>게시일</strong> <span>${video.date || '없음'}</span></div>
-                    <div class="meta-item"><strong>조회수</strong> <span>${(video.views_numeric || 0).toLocaleString()}회</span></div>
-                    <div class="meta-item"><strong>구독자</strong> <span>${(video.subscribers_numeric || 0).toLocaleString()}명</span></div>
-                </div>
-                
-                <h2>상세 구성</h2>
-                <div class="details-grid">
-                    ${renderDetailItem('소재', video.material)}
-                    ${renderDetailItem('후킹 요소', video.hooking)}
-                    ${renderDetailItem('기승전결 구조', video.narrative_structure)}
-                </div>
-                ${(kwKO.length || kwEN.length || kwZH.length) ? `
-                <h2 style="margin-top:1.5rem;">검색 키워드</h2>
-                <div class="keyword-cards-grid">
-                    ${renderKeywordCard('한국어', kwKO)}
-                    ${renderKeywordCard('English', kwEN)}
-                    ${renderKeywordCard('中文', kwZH)}
-                </div>` : ''}
-                ${video.analysis_full ? `<h2 style="margin-top:1.5rem;">분석 카드</h2><div class="analysis-cards-grid">${renderAnalysisCards(filterAnalysisText(video.analysis_full))}</div>` : ''}
-            </div>
+    const infoHtml = `
+        <h1>${video.title || '제목 없음'}</h1>
+        <div class="details-meta-bar">
+            <div class="meta-item"><strong>채널</strong> <span>${video.channel || '없음'}</span></div>
+            <div class="meta-item"><strong>게시일</strong> <span>${video.date || '없음'}</span></div>
+            <div class="meta-item"><strong>조회수</strong> <span>${(video.views_numeric || 0).toLocaleString()}회</span></div>
+            <div class="meta-item"><strong>구독자</strong> <span>${(video.subscribers_numeric || 0).toLocaleString()}명</span></div>
         </div>
+        <h2>상세 구성</h2>
+        <div class="details-grid">
+            ${renderDetailItem('소재', video.material)}
+            ${renderDetailItem('후킹 요소', video.hooking)}
+            ${renderDetailItem('기승전결 구조', video.narrative_structure)}
+        </div>
+        ${(kwKO.length || kwEN.length || kwZH.length) ? `
+        <h2 style="margin-top:1.5rem;">검색 키워드</h2>
+        <div class="keyword-cards-grid">
+            ${renderKeywordCard('한국어', kwKO)}
+            ${renderKeywordCard('English', kwEN)}
+            ${renderKeywordCard('中文', kwZH)}
+        </div>` : ''}
+        ${video.analysis_full ? `<h2 style="margin-top:1.5rem;">분석 카드</h2><div class="analysis-cards-grid">${renderAnalysisCards(filterAnalysisText(video.analysis_full))}</div>` : ''}
     `;
+
+    // 첫 렌더: 플레이어 + 정보 모두 생성. 이후에는 정보만 업데이트하여 깜빡임 방지
+    const container = detailsContent.querySelector('.details-container');
+    if (!container) {
+        detailsContent.innerHTML = `
+            <div class="details-container">
+                <div class="video-player-container">${videoPlayerHTML}</div>
+                <div class="details-info">${infoHtml}</div>
+            </div>`;
+    } else {
+        const info = container.querySelector('.details-info');
+        if (info) info.innerHTML = infoHtml;
+    }
 
     // 도파민 그래프 표시
     if (Array.isArray(video.dopamine_graph) && video.dopamine_graph.length && dopamineGraphContainer) {
