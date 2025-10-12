@@ -1367,7 +1367,7 @@ function normalizeUpdateDate(v) { if (!v) return ''; try { const s = String(v).t
   const dt = new Date(s);
   if (!isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
   return '';
-} 
+} catch { return ''; } }
 function formatDateTimeLocal(d) { const pad = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
