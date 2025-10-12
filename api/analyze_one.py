@@ -148,6 +148,23 @@ if _load_sb is None or _analyze_video is None:
         # dopamine graph (local)
         sentences = _clean_sentences_ko(tshort)
         dopamine_graph = [{ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' } for s in sentences]
+        # Fallbacks to reduce partial-missing fields
+        if not results['material']:
+            top = sorted(dopamine_graph, key=lambda x: x['level'], reverse=True)
+            cand = (top[0]['sentence'] if top else (sentences[0] if sentences else ''))
+            results['material'] = (cand or '')[:120]
+        if not results['hooking']:
+            # user preference: first sentence is the hook
+            first = sentences[0] if sentences else tshort.split('\n')[0]
+            results['hooking'] = (first or '')[:200]
+        if not results['structure']:
+            if sentences:
+                n = len(sentences)
+                q1 = sentences[0]
+                q2 = sentences[min(n//3, n-1)]
+                q3 = sentences[min(2*n//3, n-1)]
+                q4 = sentences[-1]
+                results['structure'] = f"기: {q1}\n승: {q2}\n전: {q3}\n결: {q4}"
         return {
             'material': results['material'][:2000],
             'hooking': results['hooking'][:2000],
@@ -206,7 +223,10 @@ def analyze_one():
             if payload:
                 stage = 'update'
                 sb.table('videos').update(payload).eq('id', vid).execute()
-        return jsonify({ 'ok': True, 'updated': bool(updated) })
+        wanted = list(updated.keys()) if updated else []
+        saved = list(payload.keys()) if updated else []
+        skipped = [k for k in wanted if k not in (saved or [])]
+        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped })
     except Exception as e:
         app.logger.exception('analyze_one failed')
         return jsonify({ 'ok': False, 'error': str(e), 'stage': locals().get('stage', 'unknown'), 'trace': traceback.format_exc()[:2000] }), 500
