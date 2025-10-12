@@ -23,6 +23,7 @@ const commentCountInput = document.getElementById('comment-count-input');
 const runCommentsSelectedBtn = document.getElementById('run-comments-selected-btn');
 const ytTranscriptSelectedBtn = document.getElementById('yt-transcript-selected-btn');
 const ytViewsSelectedBtn = document.getElementById('yt-views-selected-btn');
+const resetTranscriptSelectedBtn = document.getElementById('reset-transcript-selected-btn');
 const ytTranscriptAllBtn = document.getElementById('yt-transcript-all-btn');
 const ytViewsAllBtn = document.getElementById('yt-views-all-btn');
 
@@ -1118,8 +1119,8 @@ async function runAnalysisForIds(ids) {
       const slice = ids.slice(i, i + CHUNK);
       const { data: preRows } = await supabase.from('videos').select(FIELDS).in('id', slice);
       (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
-    }
-  } catch {}
+        }
+    } catch {}
     for (const id of ids) {
         try {
       if (ABORT_CURRENT) throw new Error('abort');
@@ -1172,7 +1173,7 @@ async function runAnalysisForIds(ids) {
       appendAnalysisLog(`(${id}) 서버 분석 완료`);
       // 즉시 상태 반영: 해당 행만 가볍게 갱신
       await refreshRowsByIds([id]);
-    } catch (e) {
+        } catch (e) {
       failed++; processed++;
       analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
       updateAnalysisProgress(processed, ids.length, `id=${id} 실패`);
@@ -1364,7 +1365,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       await supabase.from('videos').update({ transcript_text: toWrite, analysis_transcript_len: toWrite.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
       appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
-    } catch (e) {
+        } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
       appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
       const msg = (e?.message || '').toString();
@@ -1381,7 +1382,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   const conc = 1;
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-  await fetchAndDisplayData();
+    await fetchAndDisplayData();
 });
 
 ytViewsAllBtn?.addEventListener('click', async () => {
@@ -1447,6 +1448,39 @@ if (testGeminiKeyBtn) testGeminiKeyBtn.addEventListener('click', async () => { c
 if (saveTranscriptServerBtn) saveTranscriptServerBtn.addEventListener('click', async () => { const url = (transcriptServerInput.value || '').trim(); if (!url) { transcriptServerStatus.textContent = '서버 주소를 입력하세요.'; return; } try { localStorage.setItem('transcript_server_url', url); const res = await fetch(url.replace(/\/$/, '') + '/health'); transcriptServerStatus.textContent = res.ok ? '서버 온라인' : '응답 오류'; } catch (e) { transcriptServerStatus.textContent = '연결 실패: ' + (e?.message || e); } });
 if (ytKeysSaveBtn) ytKeysSaveBtn.addEventListener('click', async () => { try { localStorage.setItem('youtube_api_keys_list', ytKeysTextarea.value || ''); ytKeysStatus.textContent = '저장되었습니다.'; } catch (e) { ytKeysStatus.textContent = '저장 실패: ' + (e?.message || e); } });
 if (ytKeysTestBtn) ytKeysTestBtn.addEventListener('click', async () => { ytKeysStatus.textContent = '테스트 중...'; const keys = (ytKeysTextarea.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean); if (!keys.length) { ytKeysStatus.textContent = '키를 입력하세요.'; return; } try { const key = keys[0]; const res = await fetch('https://www.googleapis.com/youtube/v3/videos?part=statistics&id=dQw4w9WgXcQ&key=' + encodeURIComponent(key)); ytKeysStatus.textContent = res.ok ? '키 통신 성공' : 'HTTP ' + res.status; } catch (e) { ytKeysStatus.textContent = '테스트 실패: ' + (e?.message || e); } });
+// ---------- Reset transcript/analysis for selected ----------
+resetTranscriptSelectedBtn?.addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+  if (!ids.length) { alert('초기화할 항목을 선택하세요.'); return; }
+  const ok = confirm(`선택된 ${ids.length}개의 대본/분석을 초기화할까요? 이 작업은 되돌릴 수 없습니다.`);
+  if (!ok) return;
+  const BATCH = 500; let cleared = 0;
+  const patch = {
+    transcript_text: '',
+    analysis_transcript_len: 0,
+    transcript_unavailable: false,
+    material: null,
+    hooking: null,
+    narrative_structure: null,
+    dopamine_graph: null,
+    last_modified: Date.now()
+  };
+  try {
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const slice = ids.slice(i, i + BATCH);
+      const rows = slice.map(id => ({ id, ...patch }));
+      const { error } = await supabase.from('videos').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+      cleared += slice.length;
+      analysisBannerText && (analysisBannerText.textContent = `초기화 진행 ${cleared}/${ids.length}`);
+    }
+    appendAnalysisLog(`선택 초기화 완료: ${cleared}`);
+    await refreshRowsByIds(ids);
+  } catch (e) {
+    appendAnalysisLog(`초기화 실패: ${e?.message || e}`);
+  }
+});
+
 
 // ---------- Utils ----------
 function stableHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; } return Math.abs(h).toString(36); }
