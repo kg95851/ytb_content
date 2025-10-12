@@ -84,17 +84,17 @@ if _load_sb is None or _analyze_video is None:
     def _build_hooking_prompt() -> str:
         return (
             _persona() + '\n\n'
-            '대본의 시작부에서 궁금증을 유발하는 "대사 원문" 1줄을 그대로 추출하고, 사용된 후킹 기법을 표로 제시하세요. 요약/의역 금지.\n'
+            '대본의 시작부에서 시청자가 "왜?", "어떻게?"라고 생각하게 만드는 핵심 장면이나 대사를 "요약"하여 제시하고, 사용된 후킹 기법을 함께 표로 작성하세요.\n'
             '출력은 아래 마크다운 표 한 개만(열 머리 포함), 다른 텍스트 금지.\n'
-            '| 🤔 궁금증 유발 (Hook) | 기법 |\n| :--- | :--- |\n| (대사 원문 1줄) | (예: 의문제시형, 어그로, 모순 제시, 충격 비주얼 등) |'
+            '| 🤔 궁금증 유발 (Hook) | 기법 |\n| :--- | :--- |\n| (시작부 핵심 장면/대사 요약 1줄) | (예: 의문제시형, 어그로, 모순 제시, 충격 비주얼 등) |'
         )
 
     def _build_structure_prompt() -> str:
         return (
             _persona() + '\n\n'
-            '대본에서 기·승·전·결에 해당하는 "대사 원문"을 각 1줄씩 그대로 추출하세요(요약/의역 금지).\n'
-            '출력은 다음 마크다운 표 한 개만, 다른 텍스트 금지.\n'
-            '| 구분 | 대사(원문 그대로 1줄) |\n| :--- | :--- |\n| 기 (상황 도입) | ... |\n| 승 (사건 전개) | ... |\n| 전 (위기/전환) | ... |\n| 결 (결말) | ... |'
+            '대본에서 기·승·전·결에 해당하는 핵심 내용을 각 1문장으로 "요약"하여 표로 작성하세요(원문 복사 금지).\n'
+            '출력은 아래 마크다운 표 한 개만, 다른 텍스트 금지.\n'
+            '| 구분 | 요약 |\n| :--- | :--- |\n| 기 (상황 도입) | ... |\n| 승 (사건 전개) | ... |\n| 전 (위기/전환) | ... |\n| 결 (결말) | ... |'
         )
 
     def _clean_sentences_ko(text: str):
@@ -162,9 +162,17 @@ if _load_sb is None or _analyze_video is None:
         dopamine_graph = [{ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' } for s in sentences]
         # Fallbacks to reduce partial-missing fields
         if not results['material']:
-            top = sorted(dopamine_graph, key=lambda x: x['level'], reverse=True)
-            cand = (top[0]['sentence'] if top else (sentences[0] if sentences else ''))
-            results['material'] = (cand or '')[:120]
+            # simple one-line gist using start/mid/end stitching to avoid identical hook
+            if sentences:
+                first = sentences[0]
+                mid = sentences[min(len(sentences)//2, len(sentences)-1)]
+                last = sentences[-1]
+                gist = ' / '.join([s for s in [first, mid, last] if s])
+                results['material'] = gist[:200]
+            else:
+                top = sorted(dopamine_graph, key=lambda x: x['level'], reverse=True)
+                cand = (top[0]['sentence'] if top else (tshort.split('\n')[0] if tshort else ''))
+                results['material'] = (cand or '')[:200]
         if not results['hooking']:
             # user preference: first sentence is the hook
             first = sentences[0] if sentences else tshort.split('\n')[0]
