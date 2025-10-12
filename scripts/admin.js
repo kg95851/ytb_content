@@ -938,6 +938,7 @@ function appendAnalysisLog(line) {
 
 async function fetchTranscriptByUrl(youtubeUrl) {
     const server = getTranscriptServerUrl();
+    // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
     const res = await fetch(server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en');
     if (!res.ok) throw new Error('Transcript fetch failed: ' + res.status);
     const data = await res.json();
