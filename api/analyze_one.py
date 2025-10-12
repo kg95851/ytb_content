@@ -176,7 +176,8 @@ def add_cors_headers(resp):
 def analyze_one():
     if request.method == 'OPTIONS':
         return ('', 204)
-    if _load_sb is None or _analyze_video is None:
+    # Readiness: _analyze_video는 사용하지 않으므로 _load_sb만 확인
+    if _load_sb is None:
         return jsonify({ 'ok': False, 'error': 'server_not_ready' }), 500
     try:
         stage = 'load_sb'
