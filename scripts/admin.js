@@ -424,7 +424,9 @@ async function refreshRowsByIds(ids) {
     currentData = Array.from(map.values());
     // 현재 검색어 유지
     const query = String(dataSearchInput?.value || '').toLowerCase();
-    const rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
+    const upd = String(adminUpdateDateFilter?.value || '');
+    let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
+    if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
     renderTable(rows);
     renderAdminPagination();
   } catch {}
