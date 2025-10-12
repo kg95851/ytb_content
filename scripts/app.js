@@ -6,7 +6,6 @@ let videoTableBody = document.getElementById('video-table-body');
 const paginationContainer = document.getElementById('pagination-container');
 const loadMoreBtn = document.getElementById('load-more-btn');
 const searchInput = document.getElementById('searchInput');
-const formTypeFilter = document.getElementById('form-type-filter');
 const startDateFilter = document.getElementById('start-date-filter');
 const endDateFilter = document.getElementById('end-date-filter');
 const updateDateFilter = document.getElementById('update-date-filter');
@@ -497,8 +496,7 @@ function filterAndRender(keepPage = false) {
             return idx.includes(searchTerm);
         });
     }
-    const formType = formTypeFilter?.value || 'all';
-    if (formType !== 'all') filteredVideos = filteredVideos.filter(v => v.group_name === formType);
+    // 폼 유형 필터 제거됨
     const startDate = startDateFilter?.value || '';
     const endDate = endDateFilter?.value || '';
     if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
@@ -733,7 +731,7 @@ function renderPagination() {
 }
 
 // --------- 이벤트 ---------
-[searchInput, formTypeFilter, startDateFilter, endDateFilter, updateDateFilter].forEach(el => {
+[searchInput, startDateFilter, endDateFilter, updateDateFilter].forEach(el => {
     if (el) {
         // 검색 인풋은 디바운스 적용
         if (el === searchInput) {
