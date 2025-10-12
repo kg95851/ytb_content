@@ -9,6 +9,7 @@ const searchInput = document.getElementById('searchInput');
 const formTypeFilter = document.getElementById('form-type-filter');
 const startDateFilter = document.getElementById('start-date-filter');
 const endDateFilter = document.getElementById('end-date-filter');
+const updateDateFilter = document.getElementById('update-date-filter');
 const sortFilter = document.getElementById('sort-filter');
 // 구독자 필터 UI 요소
 const subsChips = document.querySelectorAll('.chip-subs');
@@ -45,7 +46,7 @@ let filteredVideos = [];
 // 페이지 개념 없이 연속 표시. 요청 배치는 PAGE_BATCH로 처리
 let viewMode = 'video'; // 'channel'
 let currentPage = 1;     // 1-based 페이지 인덱스
-let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc'
+let sortMode = 'pct_desc'; // 'pct_desc' | 'abs_desc' | 'date_desc' | 'update_desc'
 let subsFilter = { preset: 'all', min: null, max: null };
 let expandedChannels = new Set();
 let liveSyncTimer = null;
@@ -162,6 +163,7 @@ function precomputeOne(v) {
     // 구독자 수, 날짜 타임스탬프
     v.__subs = parseCount(v.subscribers_numeric || v.subscribers || 0) || 0;
     v.__dateTs = v.date ? new Date(v.date).getTime() : 0;
+    v.__updateTs = v.update_date ? new Date(v.update_date).getTime() : 0;
     // 검색 인덱스(소문자)
     v.__search = buildSearchIndex(v);
 }
@@ -501,6 +503,8 @@ function filterAndRender(keepPage = false) {
     const endDate = endDateFilter?.value || '';
     if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
     if (endDate) filteredVideos = filteredVideos.filter(v => v.date && v.date <= endDate);
+    const updateDate = updateDateFilter?.value || '';
+    if (updateDate) filteredVideos = filteredVideos.filter(v => v.update_date && v.update_date.slice(0,10) === updateDate);
 
     // 구독자 필터 적용
     if (subsFilter) {
@@ -562,6 +566,11 @@ function renderVideoView() {
             const bs = b.__subs != null ? b.__subs : parseCount(b.subscribers_numeric || b.subscribers || 0);
             return sortMode === 'subs_desc' ? (bs - as) : (as - bs);
         }
+        if (sortMode === 'update_desc') {
+            const ua = a.__updateTs != null ? a.__updateTs : (a.update_date ? new Date(a.update_date).getTime() : 0);
+            const ub = b.__updateTs != null ? b.__updateTs : (b.update_date ? new Date(b.update_date).getTime() : 0);
+            return ub - ua;
+        }
         // date_desc 또는 기타
         const dateA = a.__dateTs != null ? a.__dateTs : (a.date ? new Date(a.date).getTime() : 0);
         const dateB = b.__dateTs != null ? b.__dateTs : (b.date ? new Date(b.date).getTime() : 0);
@@ -585,7 +594,7 @@ function renderVideoView() {
         const pct = r.__pct != null ? r.__pct : (prev ? ((curr - prev) / prev) * 100 : 0);
         const riseColor = pct >= 0 ? '#16a34a' : '#dc2626';
         const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
-        const lastChecked = r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-';
+        const lastChecked = r.update_date ? new Date(r.update_date).toLocaleDateString('ko-KR') : (r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-');
         return `
             <tr>
             <td>${startIndex + idx + 1}</td>
@@ -724,7 +733,7 @@ function renderPagination() {
 }
 
 // --------- 이벤트 ---------
-[searchInput, formTypeFilter, startDateFilter, endDateFilter].forEach(el => {
+[searchInput, formTypeFilter, startDateFilter, endDateFilter, updateDateFilter].forEach(el => {
     if (el) {
         // 검색 인풋은 디바운스 적용
         if (el === searchInput) {
