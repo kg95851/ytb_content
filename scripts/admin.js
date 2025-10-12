@@ -63,6 +63,7 @@ const analysisBanner = document.getElementById('analysis-banner');
 const analysisBannerText = document.getElementById('analysis-banner-text');
 const analysisProgressBar = document.getElementById('analysis-progress-bar');
 const analysisLogEl = document.getElementById('analysis-log');
+const stopCurrentBtn = document.getElementById('stop-current-btn');
 
 // Export JSON
 const exportJsonBtn = document.getElementById('export-json-btn');
@@ -376,7 +377,7 @@ function renderTable(rows) {
           <td>${escapeHtml(v.channel || '')}</td>
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
-          <td>${Array.isArray(v.dopamine_graph) && v.dopamine_graph.length ? '<span class="group-tag" style="background:#10b981;">Graph</span>' : ''}</td>
+          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = !!(v.transcript_unavailable || !String(v.transcript_text||'').trim()); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; return ''; })()}</td>
                     <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
@@ -410,6 +411,23 @@ function renderAdminPagination() {
   if (end < totalPages) parts.push(makeBtn(totalPages));
   if (adminCurrentPage < totalPages) parts.push(`<button class="page-btn" data-admin-page="${adminCurrentPage+1}">다음</button>`);
   adminPaginationContainer.innerHTML = parts.join('');
+}
+
+// 가벼운 행 갱신: 특정 id만 다시 읽어 currentData에 머지 후 현재 페이지/검색 상태 유지 렌더
+async function refreshRowsByIds(ids) {
+  try {
+    if (!Array.isArray(ids) || !ids.length) return;
+    const { data, error } = await supabase.from('videos').select('*').in('id', ids);
+    if (error) return;
+    const map = new Map(currentData.map(v => [v.id, v]));
+    for (const r of (data || [])) { if (r && r.id) map.set(r.id, r); }
+    currentData = Array.from(map.values());
+    // 현재 검색어 유지
+    const query = String(dataSearchInput?.value || '').toLowerCase();
+    const rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
+    renderTable(rows);
+    renderAdminPagination();
+  } catch {}
 }
 
 dataTableContainer.addEventListener('click', (e) => {
@@ -926,6 +944,9 @@ function showAnalysisBanner(msg) {
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
 }
+let ABORT_CURRENT = false;
+stopCurrentBtn?.addEventListener('click', () => { ABORT_CURRENT = true; appendAnalysisLog('요청 중단... 다음 아이템부터 멈춥니다.'); });
+
 function updateAnalysisProgress(done, total, suffix) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
@@ -1084,37 +1105,44 @@ async function analyzeOneVideo(video) {
 async function runAnalysisForIds(ids) {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
   showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
-  let done = 0, failed = 0;
+  let processed = 0, success = 0, failed = 0, skipped = 0;
+  ABORT_CURRENT = false;
   // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
   const preById = new Map();
   try {
-    const { data: preRows } = await supabase
-      .from('videos')
-      .select('id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure')
-      .in('id', ids);
-    (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
+    const FIELDS = 'id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure';
+    const CHUNK = 1000;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { data: preRows } = await supabase.from('videos').select(FIELDS).in('id', slice);
+      (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
+    }
   } catch {}
     for (const id of ids) {
         try {
+      if (ABORT_CURRENT) throw new Error('abort');
       // 사전 스킵: 자막 없음(404) 표시된 항목 또는 대본 미존재
       const pre = preById.get(id);
       if (pre && pre.transcript_unavailable) {
-        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        skipped++; processed++;
+        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+        updateAnalysisProgress(processed, ids.length, `id=${id}`);
         appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`);
-        done++;
         continue;
       }
       // 이미 분석된 항목 기본 스킵
       if (pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure)) {
-        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        skipped++; processed++;
+        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+        updateAnalysisProgress(processed, ids.length, `id=${id}`);
         appendAnalysisLog(`(${id}) 스킵: 이미 분석됨`);
-        done++;
         continue;
       }
       if (pre && !(String(pre.transcript_text || '').trim().length > 0)) {
-        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        skipped++; processed++;
+        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+        updateAnalysisProgress(processed, ids.length, `id=${id}`);
         appendAnalysisLog(`(${id}) 스킵: 대본 없음(먼저 대본 추출 필요)`);
-        done++;
         continue;
       }
       appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
@@ -1136,12 +1164,21 @@ async function runAnalysisForIds(ids) {
         throw new Error(`http ${res.status} ${err || ''}`.trim());
       }
       if (j && j.error) throw new Error(j.error);
-      done++; analysisStatus.textContent = `진행중... ${done}/${ids.length}`; updateAnalysisProgress(done, ids.length, `id=${id}`); appendAnalysisLog(`(${id}) 서버 분석 완료`);
-      await fetchAndDisplayData();
-    } catch (e) { failed++; appendAnalysisLog(`(${id}) 오류: ${e?.message || e}`); }
+      success++; processed++;
+      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+      updateAnalysisProgress(processed, ids.length, `id=${id}`);
+      appendAnalysisLog(`(${id}) 서버 분석 완료`);
+      // 즉시 상태 반영: 해당 행만 가볍게 갱신
+      await refreshRowsByIds([id]);
+    } catch (e) {
+      failed++; processed++;
+      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+      updateAnalysisProgress(processed, ids.length, `id=${id} 실패`);
+      appendAnalysisLog(`(${id}) 오류: ${e?.message || e}`);
+    }
   }
-  analysisStatus.textContent = `분석 완료: 성공 ${done}, 실패 ${failed}`; analysisStatus.style.color = failed ? 'orange' : 'green';
-    updateAnalysisProgress(ids.length, ids.length, `성공 ${done}, 실패 ${failed}`);
+  analysisStatus.textContent = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`; analysisStatus.style.color = failed ? 'orange' : 'green';
+    updateAnalysisProgress(ids.length, ids.length, `성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`);
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
@@ -1210,6 +1247,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   // 스키마: transcript_unavailable 컬럼 탐지(있으면 실패시 플래그 저장 및 다음번 자동 스킵)
   let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
   const worker = async (id) => {
+    if (ABORT_CURRENT) throw new Error('abort');
     const { data: row, error } = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
     if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
     if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
@@ -1296,19 +1334,31 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 대본 추출 시작');
-  const ids = currentData.map(v => v.id);
+  // 1) ID 오름차순으로 정렬
+  let ids = sortIdsAsc(currentData.map(v => v.id));
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
   let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
+  // 2) 체크포인트 불러오기: last_id 이후부터 재시작
+  const ck = await loadTranscriptCheckpoint();
+  if (ck && ck.content?.last_id) {
+    const lastId = String(ck.content.last_id);
+    const idx = ids.findIndex(x => String(x) === lastId);
+    if (idx >= 0) ids = ids.slice(idx + 1);
+  }
+
+  let checkpointId = ck ? ck.id : null;
+  let processed = 0;
   const worker = async (id) => {
     const { data: row, error } = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
     if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
-    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
-    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); return; }
+    if (onlyMissing && hasNonEmptyTranscript(row?.transcript_text)) { ylog(`(${id}) skip (already has transcript)`); processed++; checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed); return; }
+    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); processed++; checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed); return; }
     const url = row?.youtube_url || '';
     if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
     try {
       const transcript = await fetchTranscriptByUrl(url);
-      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
+      const toWrite = hasNonEmptyTranscript(transcript) ? transcript : '';
+      await supabase.from('videos').update({ transcript_text: toWrite, analysis_transcript_len: toWrite.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
       appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
     } catch (e) {
@@ -1320,8 +1370,12 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       }
       throw e;
     }
+    // 진행 체크포인트 저장(마지막 성공/스킵 id와 인덱스)
+    processed++;
+    checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed);
   };
-  const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
+  // 순차 처리(재개 일관성): 전체 대본은 항상 동시성 1
+  const conc = 1;
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
@@ -1426,6 +1480,46 @@ function toBigIntSafe(value) {
   if (!digits) return 0;
   // supabase-js는 JS number를 그대로 전송하므로 bigint 컬럼에는 정수 문자열을 사용해도 허용됩니다.
   try { return BigInt(digits).toString(); } catch { return 0; }
+}
+
+// ---------- Transcript helpers ----------
+function hasNonEmptyTranscript(val) {
+  if (val == null) return false;
+  const s = String(val).trim();
+  if (!s) return false;
+  // treat very short tokens as empty noise
+  return s.replace(/\s+/g,' ').length >= 2;
+}
+
+function sortIdsAsc(arr) {
+  return arr.slice().sort((a,b) => {
+    const na = Number(a), nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+async function loadTranscriptCheckpoint() {
+  try {
+    const { data } = await supabase.from('schedules').select('id, content, created_at').order('created_at', { ascending: false }).limit(50);
+    const rows = Array.isArray(data) ? data : [];
+    for (const r of rows) {
+      try {
+        const c = typeof r.content === 'string' ? JSON.parse(r.content) : (r.content || {});
+        if (c && c.type === 'transcript_checkpoint' && c.scope === 'all') return { id: r.id, content: c };
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
+async function saveTranscriptCheckpoint(checkpointId, lastId, lastIndex) {
+  const cfg = { type: 'transcript_checkpoint', scope: 'all', last_id: lastId, last_index: lastIndex, updated_at: new Date().toISOString() };
+  if (checkpointId) {
+    try { await supabase.from('schedules').update({ content: JSON.stringify(cfg) }).eq('id', checkpointId); return checkpointId; } catch { return checkpointId; }
+  } else {
+    try { const { data } = await supabase.from('schedules').insert({ content: JSON.stringify(cfg) }).select('id').single(); return data?.id || null; } catch { return null; }
+  }
 }
 
 
