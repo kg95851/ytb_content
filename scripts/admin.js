@@ -1351,21 +1351,23 @@ function stableHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h =
 function normalizeDate(v) { if (!v) return ''; if (typeof v === 'number') { const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + v * 86400000; try { return new Date(ms).toISOString().slice(0,10); } catch { return String(v); } } const s = String(v).trim().replace(/[./]/g, '-'); if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) { try { return new Date(s).toISOString().slice(0,10); } catch { return s; } } return s; }
 function normalizeUpdateDate(v) { if (!v) return ''; try { const s = String(v).trim(); if (!s) return ''; // 허용: YYYY-MM-DD, YYYY.MM.DD, M/D, M월 D일, 10월 6일 등
   const now = new Date();
+  const pad = (n) => String(n).padStart(2,'0');
+  const fmtLocal = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
   // Excel serial -> 날짜로 간주 (정수/실수)
   if (!isNaN(Number(s)) && s.replace(/\s/g,'') === String(Number(s))) {
-    const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + Number(s) * 86400000; return new Date(ms).toISOString().slice(0,10);
+    const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + Number(s) * 86400000; return fmtLocal(new Date(ms));
   }
   const s1 = s.replace(/\s+/g,' ').replace(/[.]/g,'-').replace(/[\/]/g,'-');
   // YYYY-MM-DD
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s1)) { return new Date(s1).toISOString().slice(0,10); }
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s1)) { const dt = new Date(s1); if (!isNaN(dt.getTime())) return fmtLocal(dt); }
   // M-D -> 올해로 보정
-  if (/^\d{1,2}-\d{1,2}$/.test(s1)) { const [m,d] = s1.split('-').map(n=>parseInt(n,10)); const dt = new Date(now.getFullYear(), m-1, d); return dt.toISOString().slice(0,10); }
+  if (/^\d{1,2}-\d{1,2}$/.test(s1)) { const [m,d] = s1.split('-').map(n=>parseInt(n,10)); const dt = new Date(now.getFullYear(), m-1, d); return fmtLocal(dt); }
   // 한국어: 10월 6일
   const m = s.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-  if (m) { const mm = parseInt(m[1],10), dd = parseInt(m[2],10); const dt = new Date(now.getFullYear(), mm-1, dd); return dt.toISOString().slice(0,10); }
+  if (m) { const mm = parseInt(m[1],10), dd = parseInt(m[2],10); const dt = new Date(now.getFullYear(), mm-1, dd); return fmtLocal(dt); }
   // 마지막 시도: Date 파서
   const dt = new Date(s);
-  if (!isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
+  if (!isNaN(dt.getTime())) return fmtLocal(dt);
   return '';
 } catch { return ''; } }
 function formatDateTimeLocal(d) { const pad = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
