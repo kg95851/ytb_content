@@ -1084,9 +1084,32 @@ async function analyzeOneVideo(video) {
 async function runAnalysisForIds(ids) {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
   showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
-    let done = 0, failed = 0;
+  let done = 0, failed = 0;
+  // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
+  const preById = new Map();
+  try {
+    const { data: preRows } = await supabase
+      .from('videos')
+      .select('id, title, transcript_unavailable, transcript_text')
+      .in('id', ids);
+    (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
+  } catch {}
     for (const id of ids) {
         try {
+      // 사전 스킵: 자막 없음(404) 표시된 항목 또는 대본 미존재
+      const pre = preById.get(id);
+      if (pre && pre.transcript_unavailable) {
+        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`);
+        done++;
+        continue;
+      }
+      if (pre && !(String(pre.transcript_text || '').trim().length > 0)) {
+        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        appendAnalysisLog(`(${id}) 스킵: 대본 없음(먼저 대본 추출 필요)`);
+        done++;
+        continue;
+      }
       appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
       const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
       let j = null; try { j = await res.json(); } catch {}
