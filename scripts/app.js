@@ -9,6 +9,17 @@ const searchInput = document.getElementById('searchInput');
 const startDateFilter = null;
 const endDateFilter = null;
 const updateDateFilter = document.getElementById('update-date-filter');
+if (updateDateFilter) {
+    // 클릭/포커스 시 캘린더 오픈
+    const openPicker = () => { try { if (typeof updateDateFilter.showPicker === 'function') updateDateFilter.showPicker(); } catch {} };
+    updateDateFilter.addEventListener('click', openPicker);
+    updateDateFilter.addEventListener('focus', openPicker);
+    // 텍스트 타이핑 방지(탭/엔터/ESC/방향키만 허용)
+    updateDateFilter.addEventListener('keydown', (e) => {
+        const allow = ['Tab','Enter','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+        if (!allow.includes(e.key)) e.preventDefault();
+    });
+}
 const sortFilter = document.getElementById('sort-filter');
 // 구독자 필터 UI 요소
 const subsChips = document.querySelectorAll('.chip-subs');
