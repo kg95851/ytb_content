@@ -74,7 +74,8 @@
             <div class="sort-chip-group compact" role="tablist" aria-label="정렬">
                 <button class="chip chip-compact chip-active" data-sort="pct_desc">증가율▼</button>
                 <button class="chip chip-compact" data-sort="abs_desc">상승▼</button>
-                <button class="chip chip-compact" data-sort="date_desc">최신순</button>
+                <button class="chip chip-compact" data-sort="date_desc">게시일</button>
+                <button class="chip chip-compact" data-sort="update_desc">업데이트</button>
             </div>
             <div class="toolbar-sep"></div>
             <input type="text" id="searchInput" class="input-compact" placeholder="검색: 제목/채널/카테고리" />
@@ -88,8 +89,12 @@
                 <span class="date-sep">~</span>
                 <input type="date" id="end-date-filter" class="select-compact">
             </div>
+            <div class="date-compact">
+                <input type="date" id="update-date-filter" class="select-compact" title="업데이트 날짜">
+            </div>
             <select id="sort-filter" class="select-compact">
-                <option value="date_desc">세부정렬: 최신순</option>
+                <option value="date_desc">세부정렬: 게시일 최신순</option>
+                <option value="update_desc">세부정렬: 업데이트 최신순</option>
                 <option value="views_desc">조회수 높은 순</option>
                 <option value="views_asc">조회수 낮은 순</option>
                 <option value="subs_desc">구독자 많은 순</option>
