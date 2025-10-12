@@ -605,7 +605,7 @@ function renderVideoView() {
         const thumbnail = r.thumbnail ? `<img src="${r.thumbnail}" class="table-thumbnail" loading="lazy" onerror="this.outerHTML=\'<div class=\\'no-thumbnail-placeholder\\'>이미지 없음</div>\'">` : `<div class="no-thumbnail-placeholder">이미지 없음</div>`;
         const lastChecked = r.update_date ? new Date(r.update_date).toLocaleDateString('ko-KR') : (r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-');
         const analyzed = (Array.isArray(r.dopamine_graph) && r.dopamine_graph.length > 0) || r.material || r.hooking || r.narrative_structure;
-        const noT = !!(r.transcript_unavailable || !String(r.transcript_text||'').trim());
+        const noT = r.transcript_unavailable === true;
         const statusChip = analyzed ? '<span class="group-tag" style="background:#10b981;">분석완료</span>' : (noT ? '<span class="group-tag" style="background:#6b7280;">대본없음</span>' : '');
         return `
             <tr>
