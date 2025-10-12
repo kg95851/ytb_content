@@ -6,8 +6,8 @@ let videoTableBody = document.getElementById('video-table-body');
 const paginationContainer = document.getElementById('pagination-container');
 const loadMoreBtn = document.getElementById('load-more-btn');
 const searchInput = document.getElementById('searchInput');
-const startDateFilter = document.getElementById('start-date-filter');
-const endDateFilter = document.getElementById('end-date-filter');
+const startDateFilter = null;
+const endDateFilter = null;
 const updateDateFilter = document.getElementById('update-date-filter');
 const sortFilter = document.getElementById('sort-filter');
 // 구독자 필터 UI 요소
@@ -499,8 +499,7 @@ function filterAndRender(keepPage = false) {
     // 폼 유형 필터 제거됨
     const startDate = startDateFilter?.value || '';
     const endDate = endDateFilter?.value || '';
-    if (startDate) filteredVideos = filteredVideos.filter(v => v.date && v.date >= startDate);
-    if (endDate) filteredVideos = filteredVideos.filter(v => v.date && v.date <= endDate);
+    // 게시일 범위 필터 제거됨
     const updateDate = updateDateFilter?.value || '';
     if (updateDate) filteredVideos = filteredVideos.filter(v => v.update_date && v.update_date.slice(0,10) === updateDate);
 
@@ -731,7 +730,7 @@ function renderPagination() {
 }
 
 // --------- 이벤트 ---------
-[searchInput, startDateFilter, endDateFilter, updateDateFilter].forEach(el => {
+[searchInput, updateDateFilter].forEach(el => {
     if (el) {
         // 검색 인풋은 디바운스 적용
         if (el === searchInput) {
