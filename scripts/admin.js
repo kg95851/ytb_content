@@ -1177,10 +1177,13 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   showAnalysisBanner(`대본 추출 시작 (${ids.length}개)`);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
+  // 스키마: transcript_unavailable 컬럼 탐지(있으면 실패시 플래그 저장 및 다음번 자동 스킵)
+  let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
   const worker = async (id) => {
-    const { data: row, error } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    const { data: row, error } = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
     if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
     if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
+    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); return; }
     const url = row?.youtube_url || '';
     if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
     try {
@@ -1191,6 +1194,11 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
         } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
       appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
+      // 404 또는 자막 없음 케이스는 플래그 저장하여 다음번 자동 스킵
+      const msg = (e?.message || '').toString();
+      if (canFlag && /404|no_transcript_or_stt/i.test(msg)) {
+        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); } catch {}
+      }
       throw e;
     }
   };
@@ -1260,10 +1268,12 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   showAnalysisBanner('전체 대본 추출 시작');
   const ids = currentData.map(v => v.id);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
+  let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
   const worker = async (id) => {
-    const { data: row, error } = await supabase.from('videos').select('youtube_url,transcript_text').eq('id', id).single();
+    const { data: row, error } = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
     if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
     if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
+    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); return; }
     const url = row?.youtube_url || '';
     if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
     try {
@@ -1274,6 +1284,10 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
     } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
       appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
+      const msg = (e?.message || '').toString();
+      if (canFlag && /404|no_transcript_or_stt/i.test(msg)) {
+        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); } catch {}
+      }
       throw e;
     }
   };
