@@ -2,6 +2,8 @@ import json
 import re
 import os
 from typing import Dict, Any, List
+import time
+from collections import OrderedDict
 from flask import Flask, request, jsonify
 
 try:
@@ -49,6 +51,31 @@ DEFAULT_HEADERS = {
     'Accept-Language': 'ko,en;q=0.9',
     'Connection': 'keep-alive',
 }
+
+# -------- Bandwidth-aware caching & toggles --------
+_CACHE_TTL_SEC = int(os.getenv('TRANSCRIPT_CACHE_TTL_SEC') or '86400')  # 24h
+_CACHE_MAX = int(os.getenv('TRANSCRIPT_CACHE_SIZE') or '500')
+_STT_FALLBACK_ENABLED = (os.getenv('STT_FALLBACK_ENABLED') or '0').strip() in ('1', 'true', 'yes')
+
+class _LRUCache:
+    def __init__(self, cap: int):
+        self.cap = max(1, cap)
+        self.map: OrderedDict[str, Any] = OrderedDict()
+    def get(self, k: str):
+        if k not in self.map:
+            return None
+        v = self.map.pop(k)
+        # v = (ts, data)
+        self.map[k] = v
+        return v
+    def set(self, k: str, v: Any):
+        if k in self.map:
+            self.map.pop(k)
+        self.map[k] = v
+        while len(self.map) > self.cap:
+            self.map.popitem(last=False)
+
+_cache = _LRUCache(_CACHE_MAX)
 
 def _pick_audio_url(info: Dict[str, Any]) -> str:
     try:
@@ -167,6 +194,9 @@ def transcript_root():
         url = request.args.get('url')
         lang_pref_raw = (request.args.get('lang') or '').strip().lower()
         preferred_langs = [s.strip() for s in (lang_pref_raw or 'ko,en').split(',') if s.strip()]
+        # stt fallback toggle: default off to save bandwidth; allow ?stt=1 to force
+        stt_query = (request.args.get('stt') or '').strip().lower() in ('1','true','yes')
+        stt_enabled = _STT_FALLBACK_ENABLED or stt_query
         if not url:
             return jsonify({ 'error': 'url query required' }), 400
 
@@ -187,6 +217,14 @@ def transcript_root():
         if not vid:
             # Fallback: assume the URL itself is the video ID
             vid = url
+
+        # Cache key: (vid|langs)
+        cache_key = f"{vid}|{','.join(preferred_langs)}"
+        cv = _cache.get(cache_key)
+        if cv:
+            ts, data = cv
+            if (time.time() - ts) <= _CACHE_TTL_SEC:
+                return jsonify(data), 200
 
         # Initialize YouTubeTranscriptApi with proxy if available
         proxy_config = None
@@ -236,14 +274,15 @@ def transcript_root():
                     error_msg = str(e)
                     fetched = None
             
-            # If we still don't have text, fallback to STT (Deepgram) using YoutubeDL audio URL
+            # If we still don't have text, optional fallback to STT (Deepgram) using YoutubeDL audio URL
             text = ''
             if fetched:
                 text = '\n'.join([snip.text for snip in fetched if getattr(snip, 'text', '')])
-            if not text.strip():
+            if not text.strip() and stt_enabled:
                 try:
                     if YoutubeDL is None:
                         raise RuntimeError('yt-dlp not available')
+                    # keep requests minimal; do not download media
                     with YoutubeDL({'quiet': True, 'skip_download': True, 'nocheckcertificate': True}) as ydl:
                         info = ydl.extract_info(url, download=False)
                     audio_url = _pick_audio_url(info) if info else ''
@@ -253,11 +292,13 @@ def transcript_root():
                     text = ''
             
             if text.strip():
-                return jsonify({ 
-                    'text': text, 
+                payload = {
+                    'text': text,
                     'lang': getattr(fetched, 'language_code', None),
                     'ext': 'transcript' if fetched else 'stt'
-                }), 200
+                }
+                _cache.set(cache_key, (time.time(), payload))
+                return jsonify(payload), 200
             else:
                 # choose best error message
                 return jsonify({ 'error': 'no_transcript_or_stt', 'detail': error_msg or 'empty' }), 404
