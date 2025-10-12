@@ -378,7 +378,7 @@ function renderTable(rows) {
           <td>${escapeHtml(v.channel || '')}</td>
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
-          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = !!(v.transcript_unavailable || !String(v.transcript_text||'').trim()); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; return ''; })()}</td>
+          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; return ''; })()}</td>
                     <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
