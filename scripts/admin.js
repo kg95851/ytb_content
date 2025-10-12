@@ -89,6 +89,7 @@ let currentData = [];
 let adminCurrentPage = 1;
 const ADMIN_PAGE_SIZE = 200;
 let adminSortMode = 'update_desc';
+const ADMIN_VIEW_STATE_KEY = 'admin_view_state_v1';
 let selectedFile = null;
 let docIdToEdit = null;
 let isBulkDelete = false;
@@ -262,6 +263,14 @@ window.addEventListener('DOMContentLoaded', () => {
     scheduleTimeInput.value = formatDateTimeLocal(now);
   }
   restoreLocalSettings();
+  // 이전 보기 상태 복원
+  const st = loadAdminViewState();
+  if (st) {
+    try { if (dataSearchInput) dataSearchInput.value = st.search || ''; } catch {}
+    try { if (adminUpdateDateFilter) adminUpdateDateFilter.value = st.updateDate || ''; } catch {}
+    try { adminSortMode = st.sort || 'update_desc'; } catch {}
+    try { adminCurrentPage = Math.max(1, Number(st.page || 1)); } catch {}
+  }
   refreshAuthUI();
 });
 
@@ -414,6 +423,26 @@ function renderAdminPagination() {
   adminPaginationContainer.innerHTML = parts.join('');
 }
 
+function saveAdminViewState() {
+  try {
+    const st = {
+      search: String(dataSearchInput?.value || ''),
+      updateDate: String((typeof adminUpdateDateFilter !== 'undefined' && adminUpdateDateFilter && adminUpdateDateFilter.value) ? adminUpdateDateFilter.value : ''),
+      sort: adminSortMode,
+      page: adminCurrentPage
+    };
+    sessionStorage.setItem(ADMIN_VIEW_STATE_KEY, JSON.stringify(st));
+  } catch {}
+}
+
+function loadAdminViewState() {
+  try {
+    const raw = sessionStorage.getItem(ADMIN_VIEW_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 // 가벼운 행 갱신: 특정 id만 다시 읽어 currentData에 머지 후 현재 페이지/검색 상태 유지 렌더
 async function refreshRowsByIds(ids) {
   try {
@@ -460,6 +489,7 @@ document.addEventListener('click', (e) => {
   if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
   renderTable(rows);
   renderAdminPagination();
+  saveAdminViewState();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -480,6 +510,7 @@ adminUpdateDateFilter?.addEventListener('change', () => {
   adminCurrentPage = 1;
   renderTable(rows);
   renderAdminPagination();
+  saveAdminViewState();
 });
 
 adminSortSelect?.addEventListener('change', () => {
@@ -489,6 +520,7 @@ adminSortSelect?.addEventListener('change', () => {
   const rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
   renderTable(rows);
   renderAdminPagination();
+  saveAdminViewState();
 });
 
 // ---------- CRUD: Edit ----------
@@ -970,8 +1002,14 @@ function appendAnalysisLog(line) {
 async function fetchTranscriptByUrl(youtubeUrl) {
     const server = getTranscriptServerUrl();
     // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
-    const res = await fetch(server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en');
-    if (!res.ok) throw new Error('Transcript fetch failed: ' + res.status);
+    const url = server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en';
+    const res = await fetch(url);
+    if (!res.ok) {
+      let reason = '';
+      try { const j = await res.json(); reason = j && j.error ? String(j.error) : ''; } catch {}
+      const msg = 'Transcript fetch failed: ' + res.status + (reason ? (' ' + reason) : '');
+      throw new Error(msg);
+    }
     const data = await res.json();
     return data.text || '';
 }
@@ -1293,7 +1331,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
     }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
   youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   // 선택 항목만 가볍게 갱신하여 현재 페이지/필터 유지
   await refreshRowsByIds(ids);
@@ -1347,7 +1385,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
   youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
@@ -1384,11 +1422,12 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       await supabase.from('videos').update({ transcript_text: toWrite, analysis_transcript_len: toWrite.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
       appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
-        } catch (e) {
-      ylog(`(${id}) transcript error: ${e?.message || e}`);
-      appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
-      const msg = (e?.message || '').toString();
-      if (canFlag && /404|no_transcript_or_stt/i.test(msg)) {
+    } catch (e) {
+      const emsg = (e?.message || e).toString();
+      const isNoCaption = /\b404\b|no_transcript_or_stt|caption not found/i.test(emsg);
+      ylog(`(${id}) transcript error: ${emsg}`);
+      appendAnalysisLog(`(${id}) ${isNoCaption ? '추출할 대본 없음' : '대본 오류'}: ${emsg}`);
+      if (canFlag && /404|no_transcript_or_stt/i.test(emsg)) {
         try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); } catch {}
       }
       throw e;
@@ -1399,7 +1438,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   };
   // 순차 처리(재개 일관성): 전체 대본은 항상 동시성 1
   const conc = 1;
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
     await fetchAndDisplayData();
 });
@@ -1451,7 +1490,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
+  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
   youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
