@@ -1090,7 +1090,7 @@ async function runAnalysisForIds(ids) {
   try {
     const { data: preRows } = await supabase
       .from('videos')
-      .select('id, title, transcript_unavailable, transcript_text')
+      .select('id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure')
       .in('id', ids);
     (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
   } catch {}
@@ -1101,6 +1101,13 @@ async function runAnalysisForIds(ids) {
       if (pre && pre.transcript_unavailable) {
         updateAnalysisProgress(done, ids.length, `id=${id}`);
         appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`);
+        done++;
+        continue;
+      }
+      // 이미 분석된 항목 기본 스킵
+      if (pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure)) {
+        updateAnalysisProgress(done, ids.length, `id=${id}`);
+        appendAnalysisLog(`(${id}) 스킵: 이미 분석됨`);
         done++;
         continue;
       }
