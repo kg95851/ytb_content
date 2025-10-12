@@ -1273,7 +1273,8 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
   const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct, etaSec }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}% (ETA ${etaSec}s)`; updateAnalysisProgress(processed, total, `ETA ${etaSec}s`); } });
   youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-    await fetchAndDisplayData();
+  // 선택 항목만 가볍게 갱신하여 현재 페이지/필터 유지
+  await refreshRowsByIds(ids);
 });
 
 // --- 분리된 버튼: 선택 조회수 갱신 (YouTube Data API)
