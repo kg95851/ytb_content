@@ -1155,6 +1155,18 @@ async function runAnalysisForIds(ids) {
         appendAnalysisLog(`(${id}) 스킵: 대본 없음(먼저 대본 추출 필요)`);
         continue;
       }
+      // 서버 전 최종 재확인: 대본 없으면 즉시 스킵(초기화/동시작업으로 상태 변동 대비)
+      try {
+        const { data: chk } = await supabase.from('videos').select('transcript_text').eq('id', id).single();
+        const hasT = !!(chk && String(chk.transcript_text || '').trim().length > 0);
+        if (!hasT) {
+          skipped++; processed++;
+          analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+          updateAnalysisProgress(processed, ids.length, `id=${id}`);
+          appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`);
+          continue;
+        }
+      } catch {}
       appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
       const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
       let j = null; try { j = await res.json(); } catch {}
