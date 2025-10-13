@@ -136,6 +136,17 @@ if _load_sb is None or _analyze_video is None:
             score += 5
         return max(1, min(10, score))
 
+    def _safe_json_arr(text: str):
+        try:
+            obj = json.loads(text)
+            return obj if isinstance(obj, list) else []
+        except Exception:
+            return []
+
+    def _build_dopamine_prompt(sentences):
+        header = '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.'
+        return header + '\n\n문장 배열:\n' + json.dumps(sentences, ensure_ascii=False)
+
     def _analyze_video_fast(doc):  # type: ignore
         transcript = (doc or {}).get('transcript_text') or ''
         if not transcript:
@@ -157,9 +168,27 @@ if _load_sb is None or _analyze_video is None:
                     results[name] = (fut.result() or '').strip()
                 except Exception as e:
                     results[name] = ''
-        # dopamine graph (local)
+        # dopamine graph (LLM, chunked)
         sentences = _clean_sentences_ko(tshort)
-        dopamine_graph = [{ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' } for s in sentences]
+        dopamine_graph = []
+        batch_size = 50
+        for i in range(0, len(sentences), batch_size):
+            sub = sentences[i:i+batch_size]
+            try:
+                resp = _call_gemini(_build_dopamine_prompt(sub), '')
+                arr = _safe_json_arr(resp)
+                for item in arr:
+                    s = str(item.get('sentence') or item.get('text') or '')
+                    try:
+                        level = int(round(float(item.get('level') or item.get('score') or 0)))
+                    except Exception:
+                        level = 1
+                    level = max(1, min(10, level))
+                    dopamine_graph.append({ 'sentence': s, 'level': level, 'reason': str(item.get('reason') or '') })
+            except Exception:
+                # fallback to simple heuristic for this chunk
+                for s in sub:
+                    dopamine_graph.append({ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' })
         # Fallbacks to reduce partial-missing fields
         if not results['material']:
             # simple one-line gist using start/mid/end stitching to avoid identical hook
