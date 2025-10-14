@@ -147,6 +147,27 @@ function favToggle(group, id) {
   favSave(fav);
 }
 
+function favIsInAny(id) {
+  const vid = String(id || '').trim(); if (!vid) return false;
+  const fav = favLoad();
+  for (const [_, arr] of Object.entries(fav)) {
+    if (Array.isArray(arr) && arr.includes(vid)) return true;
+  }
+  return false;
+}
+
+function favRefreshStarStates() {
+  try {
+    document.querySelectorAll('.btn-fav-toggle').forEach(btn => {
+      const row = btn.closest('tr[data-id]');
+      const vid = row?.getAttribute('data-id');
+      const active = favIsInAny(vid);
+      btn.classList.toggle('active', !!active);
+      btn.textContent = active ? '★' : '☆';
+    });
+  } catch {}
+}
+
 // --------- Admin cache (ETag-like) ---------
 const ADMIN_IDB_DB = 'adminVideosCacheDB';
 const ADMIN_IDB_STORE = 'kv';
@@ -320,7 +341,7 @@ window.addEventListener('DOMContentLoaded', () => {
   try {
     favRender();
     favAddBtn?.addEventListener('click', () => { favAddGroup(favGroupInput?.value || ''); favGroupInput && (favGroupInput.value = ''); });
-    favDeleteBtn?.addEventListener('click', () => favDeleteSelected());
+    favDeleteBtn?.addEventListener('click', () => { favDeleteSelected(); favRefreshStarStates(); });
     favGroupList?.addEventListener('click', (e) => {
       const cb = e.target.closest('.fav-group-checkbox');
       if (!cb) return;
@@ -328,6 +349,8 @@ window.addEventListener('DOMContentLoaded', () => {
       if (!e.shiftKey) {
         document.querySelectorAll('.fav-group-checkbox').forEach(x => { if (x !== cb) x.checked = false; });
       }
+      // 그룹 선택 변경 시 현재 테이블의 별 상태 갱신
+      favRefreshStarStates();
     });
   } catch {}
   // 이전 보기 상태 복원
@@ -478,7 +501,7 @@ function renderTable(rows) {
     const picked = Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group'));
     if (!picked.length) { alert('왼쪽 즐겨찾기에서 그룹을 선택하세요.'); return; }
     picked.forEach(g => favToggle(g, vid));
-    btn.classList.toggle('active');
+    favRefreshStarStates();
   });
 }
 
