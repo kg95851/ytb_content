@@ -362,10 +362,9 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     updated['cn_category_medium'] = _extract_line(r"중국\s*중\s*카테고리\s*[:：]\s*(.+)", categories_text) or doc.get('cn_category_medium')
     updated['cn_category_small'] = _extract_line(r"중국\s*소\s*카테고리\s*[:：]\s*(.+)", categories_text) or doc.get('cn_category_small')
 
-    # material
-    material_candidate = _extract_line(r"소재\s*[:：]\s*(.+)", material_only) or material_only.strip()
+    # material + split sections
+    material_candidate = _extract_line(r"메인\s*아이디어|소재\s*[:：]\s*(.+)", material_only) or material_only.strip()
     if not material_candidate:
-        # fallback with categories or first sentence
         material_candidate = (
             updated.get('kr_category_small') or
             updated.get('kr_category_medium') or
@@ -375,6 +374,47 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
             (sentences[0] if sentences else transcript[:60])
         )
     updated['material'] = material_candidate
+
+    # parse composite sections
+    def _split_material_sections(text: str):
+        import re
+        t = (text or '').replace('\r','')
+        main_idea = ''
+        def cap_list(header, stop=None):
+            pat = re.compile(header, re.I)
+            stopre = re.compile(stop, re.I) if stop else None
+            acc = []
+            cap = False
+            for line in t.split('\n'):
+                if not cap and pat.search(line):
+                    cap = True
+                    continue
+                if cap:
+                    if stopre and stopre.search(line):
+                        break
+                    s = line.strip()
+                    if not s: continue
+                    if re.match(r"^\s*(메인\s*아이디어|핵심\s*소재|3-1|3-2|3-3)\b", s):
+                        break
+                    s = re.sub(r"^[-*•·]\s*", '', s)
+                    acc.append(s)
+            return [x for x in acc if x and len(x)>1][:12]
+        m = __import__('re').search(r"메인\s*아이디어\s*\(Main\s*Idea\)\s*[:：]\s*(.+)", t)
+        if m: main_idea = m.group(1).strip()
+        core = cap_list(r"핵심\s*소재\s*\(Core\s*Materials\)\s*:?", r"^(3-1|3-2|3-3)\b")
+        lang = cap_list(r"^(3-1\s*반복되는\s*언어\s*패턴)\b|반복되는\s*언어\s*패턴\s*[:：]", r"^(3-2|3-3)\b")
+        emo = cap_list(r"^(3-2\s*감정\s*몰입\s*포인트)\b|감정\s*몰입.*[:：]", r"^(3-3)\b")
+        info = cap_list(r"^(3-3\s*정보\s*전달\s*방식\s*특징)\b|정보\s*전달\s*방식.*[:：]", None)
+        return main_idea, core, lang, emo, info
+    try:
+        mi, core, lang, emo, info = _split_material_sections(material_only)
+        if mi: updated['material_main_idea'] = mi[:1000]
+        if core: updated['material_core_materials'] = core
+        if lang: updated['material_lang_patterns'] = lang
+        if emo: updated['material_emotion_points'] = emo
+        if info: updated['material_info_delivery'] = info
+    except Exception:
+        pass
 
     # keywords
     ko, en, zh = _parse_keywords(keywords_text)
@@ -500,7 +540,10 @@ def _process_job_batch(sb, job: Dict[str, Any], batch_size: int = 3) -> Dict[str
                 video = { 'id': vid, **rows[0] }
                 updated = _analyze_video(video)
                 if updated:
-                    sb.table('videos').update(updated).eq('id', vid).execute()
+                    allowed = set(video.keys())
+                    payload = { k: v for k, v in updated.items() if k in allowed }
+                    if payload:
+                        sb.table('videos').update(payload).eq('id', vid).execute()
             except Exception as e:
                 # mark error (optional: write to jobs table when exists)
                 pass
