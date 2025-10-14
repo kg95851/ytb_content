@@ -65,6 +65,12 @@ const analysisBannerText = document.getElementById('analysis-banner-text');
 const analysisProgressBar = document.getElementById('analysis-progress-bar');
 const analysisLogEl = document.getElementById('analysis-log');
 const stopCurrentBtn = document.getElementById('stop-current-btn');
+// topbar chip mirrors
+const chipRunSel = document.getElementById('chip-run-analysis-selected');
+const chipRunAll = document.getElementById('chip-run-analysis-all');
+const chipTrSel = document.getElementById('chip-transcript-selected');
+const chipVwSel = document.getElementById('chip-views-selected');
+const chipExport = document.getElementById('chip-export-json');
 
 // Favorites Sidebar
 const favGroupInput = document.getElementById('fav-group-input');
@@ -1391,6 +1397,13 @@ runCommentsSelectedBtn?.addEventListener('click', async () => {
   }
   analysisStatus.textContent = `댓글 수집 완료`;
 });
+
+// mirror actions on topbar chips
+chipRunSel?.addEventListener('click', () => runAnalysisSelectedBtn?.click());
+chipRunAll?.addEventListener('click', () => runAnalysisAllBtn?.click());
+chipTrSel?.addEventListener('click', () => ytTranscriptSelectedBtn?.click());
+chipVwSel?.addEventListener('click', () => ytViewsSelectedBtn?.click());
+chipExport?.addEventListener('click', () => exportJsonBtn?.click());
 
 // --- 분리된 버튼: 선택 대본 추출 (YouTube API 경유, Gemini 미사용)
 ytTranscriptSelectedBtn?.addEventListener('click', async () => {
