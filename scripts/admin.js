@@ -66,6 +66,12 @@ const analysisProgressBar = document.getElementById('analysis-progress-bar');
 const analysisLogEl = document.getElementById('analysis-log');
 const stopCurrentBtn = document.getElementById('stop-current-btn');
 
+// Favorites Sidebar
+const favGroupInput = document.getElementById('fav-group-input');
+const favAddBtn = document.getElementById('fav-add-btn');
+const favDeleteBtn = document.getElementById('fav-delete-btn');
+const favGroupList = document.getElementById('fav-group-list');
+
 // Export JSON
 const exportJsonBtn = document.getElementById('export-json-btn');
 const exportStatus = document.getElementById('export-status');
@@ -93,6 +99,47 @@ const ADMIN_VIEW_STATE_KEY = 'admin_view_state_v1';
 let selectedFile = null;
 let docIdToEdit = null;
 let isBulkDelete = false;
+
+// --------- Favorites (localStorage) ---------
+const FAV_STORE_KEY = 'admin_favorites_groups_v1';
+function favLoad() {
+  try { return JSON.parse(localStorage.getItem(FAV_STORE_KEY) || '{}'); } catch { return {}; }
+}
+function favSave(obj) {
+  try { localStorage.setItem(FAV_STORE_KEY, JSON.stringify(obj)); } catch {}
+}
+function favRender() {
+  if (!favGroupList) return;
+  const fav = favLoad();
+  const groups = Object.keys(fav);
+  if (!groups.length) { favGroupList.innerHTML = '<p class="info-message">그룹을 추가하세요.</p>'; return; }
+  const html = groups.map(g => {
+    const ids = Array.isArray(fav[g]) ? fav[g] : [];
+    return `<div class="detail-item"><label class="option"><input type="checkbox" class="fav-group-checkbox" data-group="${escapeHtml(g)}"> ${escapeHtml(g)} <span style="color:#6b7280; font-size:12px;">(${ids.length})</span></label></div>`;
+  }).join('');
+  favGroupList.innerHTML = html;
+}
+function favAddGroup(name) {
+  const n = String(name || '').trim(); if (!n) return;
+  const fav = favLoad(); if (!fav[n]) fav[n] = [];
+  favSave(fav); favRender();
+}
+function favDeleteSelected() {
+  const fav = favLoad();
+  const boxes = Array.from(document.querySelectorAll('.fav-group-checkbox:checked'));
+  if (!boxes.length) return;
+  boxes.forEach(b => { const g = b.getAttribute('data-group'); delete fav[g]; });
+  favSave(fav); favRender();
+}
+function favToggle(group, id) {
+  const g = String(group || '').trim(); const vid = String(id || '').trim();
+  if (!g || !vid) return;
+  const fav = favLoad(); if (!fav[g]) fav[g] = [];
+  const arr = fav[g];
+  const idx = arr.indexOf(vid);
+  if (idx >= 0) arr.splice(idx, 1); else arr.push(vid);
+  favSave(fav);
+}
 
 // --------- Admin cache (ETag-like) ---------
 const ADMIN_IDB_DB = 'adminVideosCacheDB';
@@ -263,6 +310,20 @@ window.addEventListener('DOMContentLoaded', () => {
     scheduleTimeInput.value = formatDateTimeLocal(now);
   }
   restoreLocalSettings();
+  // 즐겨찾기 사이드바 초기 렌더 및 이벤트 바인딩
+  try {
+    favRender();
+    favAddBtn?.addEventListener('click', () => { favAddGroup(favGroupInput?.value || ''); favGroupInput && (favGroupInput.value = ''); });
+    favDeleteBtn?.addEventListener('click', () => favDeleteSelected());
+    favGroupList?.addEventListener('click', (e) => {
+      const cb = e.target.closest('.fav-group-checkbox');
+      if (!cb) return;
+      // 단일 선택 토글(Shift로 다중 선택 허용)
+      if (!e.shiftKey) {
+        document.querySelectorAll('.fav-group-checkbox').forEach(x => { if (x !== cb) x.checked = false; });
+      }
+    });
+  } catch {}
   // 이전 보기 상태 복원
   const st = loadAdminViewState();
   if (st) {
@@ -375,13 +436,14 @@ function renderTable(rows) {
         <thead>
             <tr>
         <th><input type="checkbox" id="select-all-checkbox" /></th>
-        <th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
+        <th></th><th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
             </tr>
         </thead>
         <tbody>
       ${pageRows.map(v => `
         <tr data-id="${v.id}">
           <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
+          <td class="fav-cell" data-id="${v.id}"><button class="btn btn-icon btn-fav-toggle" title="즐겨찾기">⭐</button></td>
           <td>${v.thumbnail ? `<img class="table-thumbnail" src="${v.thumbnail}">` : ''}</td>
           <td class="table-title">${escapeHtml(v.title || '')}</td>
           <td>${escapeHtml(v.channel || '')}</td>
@@ -400,6 +462,17 @@ function renderTable(rows) {
   const selectAll = document.getElementById('select-all-checkbox');
   if (selectAll) selectAll.addEventListener('change', (e) => {
     document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = e.target.checked; });
+  });
+  // 즐겨찾기 토글
+  table.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-fav-toggle');
+    if (!btn) return;
+    const row = btn.closest('tr[data-id]');
+    const vid = row?.getAttribute('data-id');
+    const picked = Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group'));
+    if (!picked.length) { alert('왼쪽 즐겨찾기에서 그룹을 선택하세요.'); return; }
+    picked.forEach(g => favToggle(g, vid));
+    btn.classList.toggle('active');
   });
 }
 
