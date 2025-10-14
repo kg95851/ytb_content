@@ -741,7 +741,7 @@ async function processDataAndUpload(data) {
     return digits === '' || digits === '0';
   };
 
-  const incoming = [];
+  let incoming = [];
   for (const row of data) {
     if (!row || typeof row !== 'object') continue;
     const normMap = new Map();
@@ -800,6 +800,7 @@ async function processDataAndUpload(data) {
   }
   // A) 업로드 내 중복 해시 병합(첫 항목 기준, 누락값만 채움)
   if (incoming.length > 1) {
+    const beforeDedup = incoming.length;
     const byHash = new Map();
     for (const item of incoming) {
       const prev = byHash.get(item.hash);
@@ -819,6 +820,10 @@ async function processDataAndUpload(data) {
       if (canWriteUpdateDate && item.update_date && isEmptyStringValue(prev.update_date)) prev.update_date = item.update_date;
     }
     incoming = Array.from(byHash.values());
+    const afterDedup = incoming.length;
+    if (afterDedup !== beforeDedup) {
+      uploadStatus.textContent = `변경사항 분석 중... (중복 병합: ${beforeDedup} → ${afterDedup})`;
+    }
   }
   if (!incoming.length) { uploadStatus.textContent = '업로드할 유효한 행이 없습니다.'; uploadStatus.style.color = 'orange'; return; }
 
@@ -826,17 +831,29 @@ async function processDataAndUpload(data) {
   const BATCH = 500; let processed = 0;
   const hashList = incoming.map(r => r.hash);
   const existingByHash = new Map();
+  const totalBatches = Math.max(1, Math.ceil(hashList.length / BATCH));
   for (let i = 0; i < hashList.length; i += BATCH) {
     const slice = hashList.slice(i, i + BATCH);
     const selectFields = canWriteUpdateDate
       ? 'id,hash,thumbnail,title,views,views_numeric,channel,date,update_date,subscribers,subscribers_numeric,youtube_url,group_name,template_type'
       : 'id,hash,thumbnail,title,views,views_numeric,channel,date,subscribers,subscribers_numeric,youtube_url,group_name,template_type';
-    const { data: rows } = await supabase
-      .from('videos')
-      .select(selectFields)
-      .in('hash', slice);
-    (rows || []).forEach(r => existingByHash.set(r.hash, r));
+    try {
+      const { data: rows, error } = await supabase
+        .from('videos')
+        .select(selectFields)
+        .in('hash', slice);
+      if (error) throw error;
+      (rows || []).forEach(r => existingByHash.set(r.hash, r));
+    } catch (e) {
+      uploadStatus.textContent = `기존 데이터 조회 실패: ${(e?.message || e)} (진행 ${Math.min(totalBatches, Math.floor(i / BATCH) + 1)}/${totalBatches})`;
+      uploadStatus.style.color = 'orange';
+      return;
+    }
+    const doneBatches = Math.min(totalBatches, Math.floor(i / BATCH) + 1);
+    uploadStatus.textContent = `기존 데이터 조회 중... ${doneBatches}/${totalBatches}`;
+    await new Promise(r => setTimeout(r, 0));
   }
+  uploadStatus.textContent = `기존 데이터 조회 완료 (${existingByHash.size}개 일치). 삽입/업데이트 준비 중...`;
 
   // 3) 삽입 대상과 "누락 채움" 업데이트 대상 분리 (중복 삽입 방지)
   const toInsert = [];
