@@ -498,6 +498,10 @@ a:hover { color: #87ceeb; }
 .single-delete-btn { background-color: var(--danger-color) !important; }
 .single-delete-btn:hover { background-color: var(--danger-hover) !important; }
 
+/* 즐겨찾기 별 버튼 상태 */
+.btn-fav-toggle { background:#0b1326; color:#f8fafc; border:1px solid var(--border-color); padding:2px 8px; border-radius:9999px; font-size:12px; }
+.btn-fav-toggle.active { background:#f59e0b; color:#0b1220; border-color:#d97706; }
+
 
 /* --- 파일 첨부 UI 스타일 (유지) --- */
 #file-drop-area { border: 2px dashed var(--border-color); border-radius: var(--radius); padding: 1rem; text-align: center; transition: background-color 0.2s ease, border-color 0.2s ease; margin-bottom: 1rem; }
