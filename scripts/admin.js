@@ -105,6 +105,7 @@ const ADMIN_VIEW_STATE_KEY = 'admin_view_state_v1';
 let selectedFile = null;
 let docIdToEdit = null;
 let isBulkDelete = false;
+let adminLastRows = [];
 
 // --------- Favorites (localStorage) ---------
 const FAV_STORE_KEY = 'admin_favorites_groups_v1';
@@ -166,6 +167,33 @@ function favRefreshStarStates() {
       btn.textContent = active ? '★' : '☆';
     });
   } catch {}
+}
+
+function favSelectedGroups() {
+  return Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group')).filter(Boolean);
+}
+
+function favIdsForGroups(groups) {
+  const fav = favLoad();
+  const set = new Set();
+  groups.forEach(g => {
+    const arr = fav[g] || [];
+    (arr || []).forEach(id => set.add(String(id)));
+  });
+  return set;
+}
+
+function getRowsForRender() {
+  const query = String(dataSearchInput?.value || '').toLowerCase();
+  const upd = String(adminUpdateDateFilter?.value || '');
+  let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData.slice();
+  if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
+  const groups = favSelectedGroups();
+  if (groups.length) {
+    const idSet = favIdsForGroups(groups);
+    rows = rows.filter(v => idSet.has(String(v.id)));
+  }
+  return rows;
 }
 
 // --------- Admin cache (ETag-like) ---------
@@ -384,7 +412,7 @@ async function fetchAndDisplayData() {
     if (cached && cached.version === remoteVer.tag) {
       currentData = cached.data || [];
       adminCurrentPage = 1;
-        renderTable(currentData);
+      renderTable(getRowsForRender());
       renderAdminPagination();
       return;
     }
@@ -432,7 +460,7 @@ async function fetchAndDisplayData() {
     const version = remoteVer.tag || computeVersionFromData(currentData);
     await setAdminCache(version, currentData);
     adminCurrentPage = 1;
-    renderTable(currentData);
+    renderTable(getRowsForRender());
     renderAdminPagination();
   } catch (e) {
     console.error('fetch error', e);
@@ -454,6 +482,17 @@ function renderTable(rows) {
   });
   else if (adminSortMode === 'title_asc') sorted.sort((a,b) => String(a.title||'').localeCompare(String(b.title||'')));
   else if (adminSortMode === 'channel_asc') sorted.sort((a,b) => String(a.channel||'').localeCompare(String(b.channel||'')));
+  // 즐겨찾기 그룹이 선택되어 있으면 해당 영상들을 최상단으로 승격
+  const picked = favSelectedGroups();
+  if (picked.length) {
+    const idSet = favIdsForGroups(picked);
+    sorted.sort((a,b) => {
+      const A = idSet.has(String(a.id)) ? 1 : 0;
+      const B = idSet.has(String(b.id)) ? 1 : 0;
+      if (A !== B) return B - A; // 즐겨찾기(true=1)가 더 앞으로
+      return 0;
+    });
+  }
     const table = document.createElement('table');
     table.className = 'data-table';
   // 페이지 슬라이스
@@ -501,7 +540,10 @@ function renderTable(rows) {
     const picked = Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group'));
     if (!picked.length) { alert('왼쪽 즐겨찾기에서 그룹을 선택하세요.'); return; }
     picked.forEach(g => favToggle(g, vid));
-    favRefreshStarStates();
+    // 실시간 재정렬+렌더: 즐겨찾기 영상은 최상단으로 이동
+    const rowsNow = getRowsForRender();
+    renderTable(rowsNow);
+    renderAdminPagination();
   });
 }
 
@@ -585,32 +627,20 @@ document.addEventListener('click', (e) => {
   const p = Number(pageBtn.getAttribute('data-admin-page'));
   if (!isFinite(p)) return;
   adminCurrentPage = p;
-  const query = String(dataSearchInput?.value || '').toLowerCase();
-  const upd = String(adminUpdateDateFilter?.value || '');
-  let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
-  if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
-  renderTable(rows);
+  renderTable(getRowsForRender());
   renderAdminPagination();
   saveAdminViewState();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 dataSearchInput?.addEventListener('input', (e) => {
-  const t = String(e.target.value || '').toLowerCase();
-  const upd = String(adminUpdateDateFilter?.value || '');
-  let filtered = currentData.filter(v => (v.title || '').toLowerCase().includes(t) || (v.channel || '').toLowerCase().includes(t));
-  if (upd) filtered = filtered.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
   adminCurrentPage = 1;
-  renderTable(filtered);
+  renderTable(getRowsForRender());
   renderAdminPagination();
 });
 adminUpdateDateFilter?.addEventListener('change', () => {
-  const upd = String(adminUpdateDateFilter.value || '');
-  const t = String(dataSearchInput?.value || '').toLowerCase();
-  let rows = t ? currentData.filter(v => (v.title || '').toLowerCase().includes(t) || (v.channel || '').toLowerCase().includes(t)) : currentData;
-  if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
   adminCurrentPage = 1;
-  renderTable(rows);
+  renderTable(getRowsForRender());
   renderAdminPagination();
   saveAdminViewState();
 });
@@ -618,9 +648,7 @@ adminUpdateDateFilter?.addEventListener('change', () => {
 adminSortSelect?.addEventListener('change', () => {
   adminSortMode = adminSortSelect.value || 'update_desc';
   adminCurrentPage = 1;
-  const query = String(dataSearchInput?.value || '').toLowerCase();
-  const rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
-  renderTable(rows);
+  renderTable(getRowsForRender());
   renderAdminPagination();
   saveAdminViewState();
 });
