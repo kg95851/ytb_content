@@ -106,6 +106,68 @@ if _load_sb is None or _analyze_video is None:
             '| 구분 | 요약 |\n| :--- | :--- |\n| 기 (상황 도입) | ... |\n| 승 (사건 전개) | ... |\n| 전 (위기/전환) | ... |\n| 결 (결말) | ... |'
         )
 
+    def _parse_material_sections(text: str):
+        # best-effort parser for the material composite output
+        import re
+        main_idea = ''
+        core_materials = []
+        lang_patterns = []
+        emotion_points = []
+        info_delivery = []
+        t = (text or '').strip()
+        if not t:
+            return {
+                'main_idea': main_idea,
+                'core_materials': core_materials,
+                'lang_patterns': lang_patterns,
+                'emotion_points': emotion_points,
+                'info_delivery': info_delivery
+            }
+        # unify newlines
+        t = t.replace('\r', '')
+        # 1) main idea (after colon up to line end)
+        m = re.search(r"메인\s*아이디어\s*\(Main\s*Idea\)\s*[:：]\s*(.+)", t)
+        if m:
+            main_idea = m.group(1).strip()
+        # 2) capture blocks by headers
+        def capture_list_after(header_patterns, stop_patterns):
+            pat = re.compile(header_patterns, re.I)
+            stop = re.compile(stop_patterns, re.I) if stop_patterns else None
+            lines = t.split('\n')
+            capturing = False
+            acc = []
+            for line in lines:
+                if not capturing and pat.search(line):
+                    capturing = True
+                    continue
+                if capturing:
+                    if stop and stop.search(line):
+                        break
+                    # bullet lines or non-empty paragraph lines
+                    s = line.strip()
+                    if not s:
+                        continue
+                    # stop if next section header-like
+                    if re.match(r"^\s*(메인\s*아이디어|핵심\s*소재|3-1|3-2|3-3)\b", s):
+                        break
+                    s = re.sub(r"^[-*•·]\s*", '', s)
+                    acc.append(s)
+            # trim empties
+            return [x for x in acc if x and len(x) > 1][:12]
+
+        core_materials = capture_list_after(r"핵심\s*소재\s*\(Core\s*Materials\)\s*:?", r"^(3-1|3-2|3-3)\b")
+        lang_patterns = capture_list_after(r"^(3-1\s*반복되는\s*언어\s*패턴)\b|반복되는\s*언어\s*패턴\s*[:：]", r"^(3-2|3-3)\b")
+        emotion_points = capture_list_after(r"^(3-2\s*감정\s*몰입\s*포인트)\b|감정\s*몰입.*[:：]", r"^(3-3)\b")
+        info_delivery = capture_list_after(r"^(3-3\s*정보\s*전달\s*방식\s*특징)\b|정보\s*전달\s*방식.*[:：]", None)
+
+        return {
+            'main_idea': main_idea,
+            'core_materials': core_materials,
+            'lang_patterns': lang_patterns,
+            'emotion_points': emotion_points,
+            'info_delivery': info_delivery
+        }
+
     def _clean_sentences_ko(text: str):
         t = (text or '')
         # remove brackets and markers
@@ -223,8 +285,15 @@ if _load_sb is None or _analyze_video is None:
                 q3 = sentences[min(2*n//3, n-1)]
                 q4 = sentences[-1]
                 results['structure'] = f"기: {q1}\n승: {q2}\n전: {q3}\n결: {q4}"
+        # parse material into sections for new detail boxes
+        material_sections = _parse_material_sections(results['material'])
         return {
             'material': results['material'][:2000],
+            'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
+            'material_core_materials': material_sections.get('core_materials') or None,
+            'material_lang_patterns': material_sections.get('lang_patterns') or None,
+            'material_emotion_points': material_sections.get('emotion_points') or None,
+            'material_info_delivery': material_sections.get('info_delivery') or None,
             'hooking': results['hooking'][:2000],
             'narrative_structure': results['structure'][:4000],
             'dopamine_graph': dopamine_graph,
