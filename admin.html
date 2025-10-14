@@ -41,6 +41,22 @@
                     <button id="logout-btn" class="btn btn-danger">로그아웃</button>
                 </div>
             </header>
+            <!-- 즐겨찾기 사이드바 + 메인 영역 래퍼 -->
+            <div id="admin-body" style="display:flex; gap:16px; align-items:flex-start;">
+                <aside id="favorites-sidebar" style="width:240px; flex:0 0 240px; position:sticky; top:60px; align-self:flex-start;">
+                    <div class="upload-box">
+                        <h3 style="margin-bottom:.5rem;">⭐ 즐겨찾기</h3>
+                        <div class="form-group" style="display:flex; gap:.5rem; align-items:center;">
+                            <input type="text" id="fav-group-input" placeholder="그룹 이름" style="flex:1;">
+                            <button id="fav-add-btn" class="btn btn-primary">추가</button>
+                        </div>
+                        <div style="display:flex; gap:.5rem; align-items:center; margin:.5rem 0;">
+                            <button id="fav-delete-btn" class="btn btn-danger" style="flex:1;">선택 삭제</button>
+                        </div>
+                        <div id="fav-group-list" class="details-grid" style="max-height:420px; overflow:auto;"></div>
+                    </div>
+                </aside>
+                <div id="admin-main" style="flex:1; min-width:0;">
             <div id="analysis-banner" class="sticky-banner hidden">
                 <div class="banner-row">
                     <strong>분석 현황</strong>
@@ -214,6 +230,8 @@
                     
                 </div>
             </div>
+                </div> <!-- /#admin-main -->
+            </div> <!-- /#admin-body -->
         </div>
     </div>
 
