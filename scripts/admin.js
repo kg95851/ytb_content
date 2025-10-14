@@ -719,9 +719,31 @@ async function processDataAndUpload(data) {
       update_date: normalizeUpdateDate(update_date_raw)
     });
   }
+  // A) 업로드 내 중복 해시 병합(첫 항목 기준, 누락값만 채움)
+  if (incoming.length > 1) {
+    const byHash = new Map();
+    for (const item of incoming) {
+      const prev = byHash.get(item.hash);
+      if (!prev) { byHash.set(item.hash, item); continue; }
+      // 문자열/값 병합: prev가 비었으면 item으로 채움
+      if (item.thumbnail && isEmptyStringValue(prev.thumbnail)) prev.thumbnail = item.thumbnail;
+      if (item.title && isEmptyStringValue(prev.title)) prev.title = item.title;
+      if (item.views && isEmptyStringValue(prev.views)) prev.views = item.views;
+      if (item.views_numeric != null && isEmptyNumericValue(prev.views_numeric)) prev.views_numeric = toBigIntSafe(item.views_numeric);
+      if (item.channel && isEmptyStringValue(prev.channel)) prev.channel = item.channel;
+      if (item.date && isEmptyStringValue(prev.date)) prev.date = item.date;
+      if (item.subscribers && isEmptyStringValue(prev.subscribers)) prev.subscribers = item.subscribers;
+      if (item.subscribers_numeric != null && isEmptyNumericValue(prev.subscribers_numeric)) prev.subscribers_numeric = toBigIntSafe(item.subscribers_numeric);
+      if (item.youtube_url && isEmptyStringValue(prev.youtube_url)) prev.youtube_url = item.youtube_url;
+      if (item.group_name && isEmptyStringValue(prev.group_name)) prev.group_name = item.group_name;
+      if (item.template_type && isEmptyStringValue(prev.template_type)) prev.template_type = item.template_type;
+      if (canWriteUpdateDate && item.update_date && isEmptyStringValue(prev.update_date)) prev.update_date = item.update_date;
+    }
+    incoming = Array.from(byHash.values());
+  }
   if (!incoming.length) { uploadStatus.textContent = '업로드할 유효한 행이 없습니다.'; uploadStatus.style.color = 'orange'; return; }
 
-  // 2) 기존 데이터 조회 (hash 기준)
+  // 2) 기존 데이터 조회 (hash 기준) — 이미 DB에 있는 해시는 삽입 대상에서 제거
   const BATCH = 500; let processed = 0;
   const hashList = incoming.map(r => r.hash);
   const existingByHash = new Map();
@@ -737,14 +759,14 @@ async function processDataAndUpload(data) {
     (rows || []).forEach(r => existingByHash.set(r.hash, r));
   }
 
-  // 3) 삽입 대상과 "누락 채움" 업데이트 대상 분리
+  // 3) 삽입 대상과 "누락 채움" 업데이트 대상 분리 (중복 삽입 방지)
   const toInsert = [];
   const toUpdate = [];
   const now = Date.now();
   for (const item of incoming) {
     const exist = existingByHash.get(item.hash);
     if (!exist) {
-      // 신규: 제공된 값만으로 삽입
+      // 신규: 제공된 값만으로 삽입 (DB에 동일 hash가 없는 경우만)
       const payload = { hash: item.hash, last_modified: now };
       if (item.thumbnail) payload.thumbnail = item.thumbnail;
       if (item.title) payload.title = item.title;
@@ -1319,13 +1341,14 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
       await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
       appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
+      try { await refreshRowsByIds([id]); } catch {}
         } catch (e) {
       ylog(`(${id}) transcript error: ${e?.message || e}`);
       appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
       // 404 또는 자막 없음 케이스는 플래그 저장하여 다음번 자동 스킵
       const msg = (e?.message || '').toString();
       if (canFlag && /404|no_transcript_or_stt/i.test(msg)) {
-        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); } catch {}
+        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); try { await refreshRowsByIds([id]); } catch {} } catch {}
       }
       throw e;
     }
@@ -1422,13 +1445,14 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       await supabase.from('videos').update({ transcript_text: toWrite, analysis_transcript_len: toWrite.length, last_modified: Date.now() }).eq('id', id);
       ylog(`(${id}) transcript saved (${transcript.length} chars)`);
       appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
-    } catch (e) {
+      try { await refreshRowsByIds([id]); } catch {}
+        } catch (e) {
       const emsg = (e?.message || e).toString();
       const isNoCaption = /\b404\b|no_transcript_or_stt|caption not found/i.test(emsg);
       ylog(`(${id}) transcript error: ${emsg}`);
       appendAnalysisLog(`(${id}) ${isNoCaption ? '추출할 대본 없음' : '대본 오류'}: ${emsg}`);
       if (canFlag && /404|no_transcript_or_stt/i.test(emsg)) {
-        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); } catch {}
+        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); try { await refreshRowsByIds([id]); } catch {} } catch {}
       }
       throw e;
     }
