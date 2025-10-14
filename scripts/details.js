@@ -86,9 +86,12 @@ const renderDetails = (video) => {
         </div>
         <h2>상세 구성</h2>
         <div class="details-grid">
-            ${renderDetailItem('소재', video.material)}
-            ${renderDetailItem('후킹 요소', video.hooking)}
             ${renderDetailItem('기승전결 구조', video.narrative_structure)}
+            ${renderDetailItem('후킹 패턴', video.hooking)}
+            ${renderDetailList('반복되는 언어 패턴', video.material_lang_patterns)}
+            ${renderDetailList('감정 몰입 포인트', video.material_emotion_points)}
+            ${renderDetailList('정보 전달 방식 특징', video.material_info_delivery)}
+            ${renderCoreMaterialsBox(video)}
         </div>
         ${(kwKO.length || kwEN.length || kwZH.length) ? `
         <h2 style="margin-top:1.5rem;">검색 키워드</h2>
@@ -204,6 +207,36 @@ const renderDetailItem = (label, value, fullWidth = false) => {
         <div class="${wrapperClass}">
             <span class="detail-label">${label}</span>
             <span class="detail-value">${value || '없음'}</span>
+        </div>
+    `;
+};
+
+// 배열 데이터용 박스 렌더링
+const renderDetailList = (label, arr, fullWidth = false) => {
+    const items = Array.isArray(arr) ? arr : [];
+    const content = items.length ? `<ul class="detail-list">${items.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : '없음';
+    const wrapperClass = fullWidth ? 'detail-item analysis-full' : 'detail-item';
+    return `
+        <div class="${wrapperClass}">
+            <span class="detail-label">${label}</span>
+            <span class="detail-value">${content}</span>
+        </div>
+    `;
+};
+
+// 핵심 소재 전용 박스(메인 아이디어 + 리스트)
+const renderCoreMaterialsBox = (video) => {
+    const title = '핵심 소재';
+    const mainIdea = String(video.material_main_idea || '').trim();
+    const list = Array.isArray(video.material_core_materials) ? video.material_core_materials : [];
+    const body = `
+        ${mainIdea ? `<div style="margin-bottom:6px;"><strong>메인 아이디어</strong> ${escapeHtml(mainIdea)}</div>` : ''}
+        ${list.length ? `<ul class=\"detail-list\">${list.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : '없음'}
+    `;
+    return `
+        <div class="detail-item">
+            <span class="detail-label">${title}</span>
+            <span class="detail-value">${body}</span>
         </div>
     `;
 };
