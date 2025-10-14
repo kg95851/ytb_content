@@ -33,7 +33,7 @@
     </div>
 
     <div id="admin-panel" class="hidden">
-        <div class="container">
+        <div class="container container-fluid">
             <header class="admin-header">
                 <h2>콘텐츠 관리 대시보드</h2>
                 <div style="display:flex; gap:.5rem; align-items:center;">
@@ -41,6 +41,14 @@
                     <button id="logout-btn" class="btn btn-danger">로그아웃</button>
                 </div>
             </header>
+            <!-- 상단 고정 툴바: 이미지 스타일에 맞춘 컬러 칩 -->
+            <nav class="admin-topbar">
+                <button id="chip-run-analysis-selected" class="chip-banner chip-indigo">선택 분석 실행 (Gemini)</button>
+                <button id="chip-run-analysis-all" class="chip-banner chip-blue">전체 분석 실행</button>
+                <button id="chip-transcript-selected" class="chip-banner chip-cyan">선택 대본 추출</button>
+                <button id="chip-views-selected" class="chip-banner chip-emerald">선택 조회수 갱신</button>
+                <button id="chip-export-json" class="chip-banner chip-purple">JSON 내보내기</button>
+            </nav>
             <!-- 즐겨찾기 사이드바 + 메인 영역 래퍼 -->
             <div id="admin-body" style="display:flex; gap:16px; align-items:flex-start;">
                 <aside id="favorites-sidebar" style="width:240px; flex:0 0 240px; position:sticky; top:60px; align-self:flex-start;">
