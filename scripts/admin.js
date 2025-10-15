@@ -1652,7 +1652,9 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
 
 // --- 전체 처리 버튼들 ---
 ytTranscriptAllBtn?.addEventListener('click', async () => {
-  if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  if (!BULK_SILENT) {
+    if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 대본 추출 시작');
   // 1) ID 오름차순으로 정렬
@@ -1763,7 +1765,9 @@ try { setTimeout(() => autoRestartFullTranscript(12 * 60 * 1000), 12 * 60 * 1000
 
 ytViewsAllBtn?.addEventListener('click', async () => {
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
-  if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  if (!BULK_SILENT) {
+    if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
+  }
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 조회수 갱신 시작');
         const ids = currentData.map(v => v.id);
