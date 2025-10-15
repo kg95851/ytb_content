@@ -332,9 +332,10 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
                 time.sleep(0.3)
             return last
         futs = {
-            'material': ex.submit(call_strict, _build_material_prompt(), tshort, _material_json_ok, 2),
-            'hooking': ex.submit(call_strict, _build_hooking_prompt(), _first_sents_for_hook(tshort), lambda s: _is_md_table(s) and ('패턴' in s or '후킹' in s), 2),
-            'structure': ex.submit(call_strict, _build_structure_prompt(), tshort, _looks_like_structure_table, 2)
+            'material': ex.submit(call_strict, _build_material_prompt(), tshort, _material_json_ok, 3),
+            # 형식을 강제하지 않고 비어있지만 않으면 저장
+            'hooking': ex.submit(call_strict, _build_hooking_prompt(), _first_sents_for_hook(tshort), lambda s: bool((s or '').strip()), 2),
+            'structure': ex.submit(call_strict, _build_structure_prompt(), tshort, lambda s: bool((s or '').strip()), 2)
         }
         for k, f in futs.items():
             try:
