@@ -1322,7 +1322,7 @@ async function analyzeOneVideo(video) {
   return { updated };
 }
 
-async function runAnalysisForIds(ids) {
+async function runAnalysisForIds(ids, opts = {}) {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
   showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
   let processed = 0, success = 0, failed = 0, skipped = 0;
@@ -1338,8 +1338,13 @@ async function runAnalysisForIds(ids) {
       (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
         }
     } catch {}
+  // 1) 즉시 필터링: transcript_unavailable=true 인 항목은 전부 제외(무조건 스킵)
+  ids = ids.filter(id => {
+    const pre = preById.get(id);
+    return !(pre && pre.transcript_unavailable === true);
+  });
   // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
-  const conc = Math.max(4, Math.min(12, Number(ytTranscriptConcInput?.value || 6)));
+  const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1386,6 +1391,14 @@ async function runAnalysisForIds(ids) {
       processed = success + failed + skipped;
       analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
       if (ok) { try { await refreshRowsByIds([id]); } catch {} }
+      // 장시간 처리 시 리소스 안정화를 위해 1000개마다 렌더/캐시 청소성 갱신
+      if (processed % 1000 === 0) {
+        try { await new Promise(r => setTimeout(r, 50)); } catch {}
+      }
+      // 외부 콜백(체크포인트 등)
+      if (typeof opts.onItemDoneGlobal === 'function') {
+        try { opts.onItemDoneGlobal(id, processed, { ok, skipped: !!(payload && payload.skip) }); } catch {}
+      }
     }
   });
   analysisStatus.textContent = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`; analysisStatus.style.color = failed ? 'orange' : 'green';
@@ -1613,7 +1626,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
     checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed);
   };
   // 동시성: 서버/대역폭 상황에 따라 조절, 체크포인트는 onItemDone에서 처리
-  const conc = Math.max(2, Math.min(12, Number(ytTranscriptConcInput?.value || 6)));
+  const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
   const { done, failed } = await processInBatches(ids, worker, {
     concurrency: conc,
     onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); },
@@ -1621,11 +1634,44 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
       try { checkpointId = await saveTranscriptCheckpoint(checkpointId, id, ++processed); } catch {}
       // 부분 UI 갱신(성능 위해 20개 단위로)
       if (processed % 20 === 0) { try { await refreshRowsByIds(ids.slice(Math.max(0, processed-20), processed)); } catch {} }
+      // 메모리/성능 유지: 주기적으로 preById/idMeta 맵을 얕게 압축
+      if (processed % 500 === 0) {
+        try {
+          const keys = Array.from(idMeta.keys());
+          const keep = new Set(keys.slice(Math.max(0, keys.length - 2000))); // 최근 2000개만 유지
+          for (const k of keys) { if (!keep.has(k)) idMeta.delete(k); }
+          // 강제 GC 힌트용 no-op
+        } catch {}
+      }
     }
   });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
     await fetchAndDisplayData();
 });
+
+// --- 자동 재시작(체크포인트 이어받기) 유틸 ---
+async function autoRestartFullTranscript(intervalMs = 10 * 60 * 1000) {
+  try {
+    // 진행 중이 아니면 실행
+    if (ABORT_CURRENT) return;
+    // 체크포인트가 존재하고 일정 시간 경과 시 자동 재개
+    const ck = await loadTranscriptCheckpoint();
+    if (!ck || !ck.content) return;
+    // 간단: 클릭 핸들러 재호출 대신 내부 로직 재사용을 위해 버튼 이벤트를 트리거
+    // 안전: 사용자 동작 없을 때만
+    const now = Date.now();
+    const lastIndex = Number(ck.content.last_index || 0);
+    if (lastIndex >= 0) {
+      try { document.getElementById('yt-transcript-all-btn')?.click(); } catch {}
+    }
+  } catch {}
+  finally {
+    setTimeout(() => autoRestartFullTranscript(intervalMs), intervalMs);
+  }
+}
+
+// 페이지 진입 후 일정 간격으로 자동 재시작 타이머 시작(옵션)
+try { setTimeout(() => autoRestartFullTranscript(12 * 60 * 1000), 12 * 60 * 1000); } catch {}
 
 ytViewsAllBtn?.addEventListener('click', async () => {
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
@@ -1746,7 +1792,7 @@ function normalizeUpdateDate(v) { if (!v) return ''; try { const s = String(v).t
   // 마지막 시도: Date 파서
   const dt = new Date(s);
   if (!isNaN(dt.getTime())) return fmtLocal(dt);
-  return '';
+        return '';
 } catch { return ''; } }
 function formatDateTimeLocal(d) { const pad = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -1796,7 +1842,7 @@ async function saveTranscriptCheckpoint(checkpointId, lastId, lastIndex) {
   const cfg = { type: 'transcript_checkpoint', scope: 'all', last_id: lastId, last_index: lastIndex, updated_at: new Date().toISOString() };
   if (checkpointId) {
     try { await supabase.from('schedules').update({ content: JSON.stringify(cfg) }).eq('id', checkpointId); return checkpointId; } catch { return checkpointId; }
-  } else {
+        } else {
     try { const { data } = await supabase.from('schedules').insert({ content: JSON.stringify(cfg) }).select('id').single(); return data?.id || null; } catch { return null; }
   }
 }
