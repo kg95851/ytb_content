@@ -142,7 +142,26 @@ if _load_sb is None or _analyze_video is None:
                     'info_delivery': info_delivery
                 }
         except Exception:
-            pass
+            # try to extract JSON object inside code fences or surrounding text
+            try:
+                start = t.index('{')
+                end = t.rindex('}') + 1
+                payload = _json.loads(t[start:end])
+                if isinstance(payload, dict):
+                    main_idea = str(payload.get('main_idea') or '').strip()
+                    core_materials = [str(x).strip() for x in (payload.get('core_materials') or []) if str(x).strip()][:12]
+                    lang_patterns = [str(x).strip() for x in (payload.get('lang_patterns') or []) if str(x).strip()][:12]
+                    emotion_points = [str(x).strip() for x in (payload.get('emotion_points') or []) if str(x).strip()][:12]
+                    info_delivery = [str(x).strip() for x in (payload.get('info_delivery') or []) if str(x).strip()][:12]
+                    return {
+                        'main_idea': main_idea,
+                        'core_materials': core_materials,
+                        'lang_patterns': lang_patterns,
+                        'emotion_points': emotion_points,
+                        'info_delivery': info_delivery
+                    }
+            except Exception:
+                pass
         # Fallback: header-based capture
         t = t.replace('\r', '')
         m = re.search(r"메인\s*아이디어\s*\(Main\s*Idea\)\s*[:：]\s*(.+)", t)
@@ -315,9 +334,10 @@ if _load_sb is None or _analyze_video is None:
         results = { 'material': '', 'hooking': '', 'structure': '' }
         with ThreadPoolExecutor(max_workers=3) as ex:
             futs = {
-                'material': ex.submit(_call_strict, 'material', _build_material_prompt(), tshort, _material_json_ok, 2),
-                'hooking': ex.submit(_call_strict, 'hooking', _build_hooking_prompt(), (hook_input or tshort[:1200]), lambda s: _is_md_table(s) and ('패턴' in s or '후킹' in s), 2),
-                'structure': ex.submit(_call_strict, 'structure', _build_structure_prompt(), tshort, _looks_like_structure_table, 2)
+                'material': ex.submit(_call_strict, 'material', _build_material_prompt(), tshort, _material_json_ok, 3),
+                # 후킹/구조는 형식을 강제하지 않고 비어있지만 않으면 저장
+                'hooking': ex.submit(_call_strict, 'hooking', _build_hooking_prompt(), (hook_input or tshort[:1200]), lambda s: bool((s or '').strip()), 2),
+                'structure': ex.submit(_call_strict, 'structure', _build_structure_prompt(), tshort, lambda s: bool((s or '').strip()), 2)
             }
             for k, f in futs.items():
                 try:
