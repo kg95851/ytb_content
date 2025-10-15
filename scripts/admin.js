@@ -517,7 +517,7 @@ function renderTable(rows) {
           <td>${escapeHtml(v.channel || '')}</td>
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
-          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; return ''; })()}</td>
+          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; const hasT = !!(v.transcript_text && String(v.transcript_text).trim().length > 0); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; if (hasT) return '<span class="group-tag" style="background:#3b82f6;">대본있음</span>'; return ''; })()}</td>
                     <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
@@ -1338,77 +1338,56 @@ async function runAnalysisForIds(ids) {
       (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
         }
     } catch {}
-    for (const id of ids) {
-        try {
-      if (ABORT_CURRENT) throw new Error('abort');
-      // 사전 스킵: 자막 없음(404) 표시된 항목 또는 대본 미존재
-      const pre = preById.get(id);
-      if (pre && pre.transcript_unavailable) {
-        skipped++; processed++;
-        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-        updateAnalysisProgress(processed, ids.length, `id=${id}`);
-        appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`);
-        continue;
-      }
-      // 이미 분석된 항목 기본 스킵
-      if (pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure)) {
-        skipped++; processed++;
-        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-        updateAnalysisProgress(processed, ids.length, `id=${id}`);
-        appendAnalysisLog(`(${id}) 스킵: 이미 분석됨`);
-        continue;
-      }
-      if (pre && !(String(pre.transcript_text || '').trim().length > 0)) {
-        skipped++; processed++;
-        analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-        updateAnalysisProgress(processed, ids.length, `id=${id}`);
-        appendAnalysisLog(`(${id}) 스킵: 대본 없음(먼저 대본 추출 필요)`);
-        continue;
-      }
-      // 서버 전 최종 재확인: 대본 없으면 즉시 스킵(초기화/동시작업으로 상태 변동 대비)
+  // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
+  const conc = Math.max(4, Math.min(12, Number(ytTranscriptConcInput?.value || 6)));
+  const worker = async (id) => {
+    if (ABORT_CURRENT) throw new Error('abort');
+    const pre = preById.get(id);
+    if (pre && pre.transcript_unavailable) { appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`); return { skip: true }; }
+    if (pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure)) { appendAnalysisLog(`(${id}) 스킵: 이미 분석됨`); return { skip: true }; }
+    if (pre && !(String(pre.transcript_text || '').trim().length > 0)) { appendAnalysisLog(`(${id}) 스킵: 대본 없음`); return { skip: true }; }
+    // 안전확인(경합 방지)
+    try {
+      const { data: chk } = await supabase.from('videos').select('transcript_text').eq('id', id).single();
+      const hasT = !!(chk && String(chk.transcript_text || '').trim().length > 0);
+      if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
+    } catch {}
+    appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
+    const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    let j = null; try { j = await res.json(); } catch {}
+    if (!res.ok) {
+      const stage = j && j.stage ? j.stage : '';
+      const err = j && j.error ? j.error : '';
+      const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
+      appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
+      if (trace) appendAnalysisLog(`trace: ${trace}`);
+      // 환경 변수 진단(1회/간헐적으로만 필요하지만 간단하게 유지)
       try {
-        const { data: chk } = await supabase.from('videos').select('transcript_text').eq('id', id).single();
-        const hasT = !!(chk && String(chk.transcript_text || '').trim().length > 0);
-        if (!hasT) {
-          skipped++; processed++;
-          analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-          updateAnalysisProgress(processed, ids.length, `id=${id}`);
-          appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`);
-          continue;
-        }
+        const dbgRes = await fetch('/api/analyze_one/debug');
+        const dbg = await dbgRes.json();
+        const env = dbg && dbg.env ? dbg.env : {};
+        appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
       } catch {}
-      appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-      const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      let j = null; try { j = await res.json(); } catch {}
-      if (!res.ok) {
-        const stage = j && j.stage ? j.stage : '';
-        const err = j && j.error ? j.error : '';
-        const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
-        appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
-        if (trace) appendAnalysisLog(`trace: ${trace}`);
-        // 환경 변수 진단
-        try {
-          const dbgRes = await fetch('/api/analyze_one/debug');
-          const dbg = await dbgRes.json();
-          const env = dbg && dbg.env ? dbg.env : {};
-          appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
-        } catch {}
-        throw new Error(`http ${res.status} ${err || ''}`.trim());
-      }
-      if (j && j.error) throw new Error(j.error);
-      success++; processed++;
-      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-      updateAnalysisProgress(processed, ids.length, `id=${id}`);
-      appendAnalysisLog(`(${id}) 서버 분석 완료`);
-      // 즉시 상태 반영: 해당 행만 가볍게 갱신
-      await refreshRowsByIds([id]);
-        } catch (e) {
-      failed++; processed++;
-      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-      updateAnalysisProgress(processed, ids.length, `id=${id} 실패`);
-      appendAnalysisLog(`(${id}) 오류: ${e?.message || e}`);
+      throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
     }
-  }
+    if (j && j.error) throw new Error(j.error);
+    return { ok: true };
+  };
+  const { done, failed: failedCnt } = await processInBatches(ids, worker, {
+    concurrency: conc,
+    onProgress: ({ processed: p, total, pct }) => {
+      // 집계는 onItemDone에서 증가
+      updateAnalysisProgress(p, total);
+    },
+    onItemDone: async (id, ok, payload) => {
+      if (payload && payload.skip) { skipped++; }
+      else if (ok) { success++; }
+      else { failed++; }
+      processed = success + failed + skipped;
+      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+      if (ok) { try { await refreshRowsByIds([id]); } catch {} }
+    }
+  });
   analysisStatus.textContent = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`; analysisStatus.style.color = failed ? 'orange' : 'green';
     updateAnalysisProgress(ids.length, ids.length, `성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`);
 }
