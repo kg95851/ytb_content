@@ -56,7 +56,7 @@ if _load_sb is None or _analyze_video is None:
                     continue
                 url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                 try:
-                    res = requests.post(url, json=payload, timeout=180)
+                    res = requests.post(url, json=payload, timeout=240)
                     if res.status_code == 404:
                         errors.append(f"{api_ver}/{model}:404")
                         continue
@@ -249,6 +249,41 @@ if _load_sb is None or _analyze_video is None:
         header = '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.'
         return header + '\n\n문장 배열:\n' + json.dumps(sentences, ensure_ascii=False)
 
+    # --- Validators to strictly require LLM-formatted outputs ---
+    def _is_md_table(text: str) -> bool:
+        t = (text or '').strip()
+        return '|' in t and '\n' in t and t.count('|') >= 6
+
+    def _looks_like_structure_table(text: str) -> bool:
+        t = (text or '').lower()
+        return ('| 기' in t) and ('| 승' in t) and ('| 전' in t) and ('| 결' in t)
+
+    def _material_json_ok(text: str) -> bool:
+        try:
+            obj = json.loads(text)
+            return (
+                isinstance(obj, dict) and
+                isinstance(obj.get('main_idea', ''), str) and
+                isinstance(obj.get('core_materials', []), list) and
+                isinstance(obj.get('lang_patterns', []), list) and
+                isinstance(obj.get('emotion_points', []), list) and
+                isinstance(obj.get('info_delivery', []), list)
+            )
+        except Exception:
+            return False
+
+    def _call_strict(kind: str, prompt: str, content: str, validator, tries: int = 2) -> str:
+        last = ''
+        for _ in range(max(1, tries)):
+            last = (_call_gemini(prompt, content) or '').strip()
+            if validator(last):
+                break
+            try:
+                time.sleep(0.3)
+            except Exception:
+                pass
+        return last
+
     def _analyze_video_fast(doc):  # type: ignore
         transcript = (doc or {}).get('transcript_text') or ''
         if not transcript:
@@ -259,20 +294,19 @@ if _load_sb is None or _analyze_video is None:
         # 후킹 입력은 시작부 요약 정확도를 위해 처음 2~3문장만 전달
         first_sents = _clean_sentences_ko(tshort)[:3]
         hook_input = ' '.join(first_sents)[:800]
-        jobs = {
-            'material': (_build_material_prompt(), tshort),
-            'hooking': (_build_hooking_prompt(), hook_input or tshort[:1200]),
-            'structure': (_build_structure_prompt(), tshort)
-        }
+        # Strict LLM calls without transcript-derived fallbacks
         results = { 'material': '', 'hooking': '', 'structure': '' }
         with ThreadPoolExecutor(max_workers=3) as ex:
-            fut_map = { ex.submit(_call_gemini, p, txt): name for name, (p, txt) in jobs.items() }
-            for fut in as_completed(fut_map):
-                name = fut_map[fut]
+            futs = {
+                'material': ex.submit(_call_strict, 'material', _build_material_prompt(), tshort, _material_json_ok, 2),
+                'hooking': ex.submit(_call_strict, 'hooking', _build_hooking_prompt(), (hook_input or tshort[:1200]), lambda s: _is_md_table(s) and ('패턴' in s or '후킹' in s), 2),
+                'structure': ex.submit(_call_strict, 'structure', _build_structure_prompt(), tshort, _looks_like_structure_table, 2)
+            }
+            for k, f in futs.items():
                 try:
-                    results[name] = (fut.result() or '').strip()
-                except Exception as e:
-                    results[name] = ''
+                    results[k] = (f.result() or '').strip()
+                except Exception:
+                    results[k] = ''
         # dopamine graph (LLM, chunked)
         sentences = _clean_sentences_ko(tshort)
         dopamine_graph = []
@@ -294,43 +328,18 @@ if _load_sb is None or _analyze_video is None:
                 # fallback to simple heuristic for this chunk
                 for s in sub:
                     dopamine_graph.append({ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' })
-        # Fallbacks to reduce partial-missing fields
-        if not results['material']:
-            # simple one-line gist using start/mid/end stitching to avoid identical hook
-            if sentences:
-                first = sentences[0]
-                mid = sentences[min(len(sentences)//2, len(sentences)-1)]
-                last = sentences[-1]
-                gist = ' / '.join([s for s in [first, mid, last] if s])
-                results['material'] = gist[:200]
-            else:
-                top = sorted(dopamine_graph, key=lambda x: x['level'], reverse=True)
-                cand = (top[0]['sentence'] if top else (tshort.split('\n')[0] if tshort else ''))
-                results['material'] = (cand or '')[:200]
-        if not results['hooking']:
-            # user preference: first sentence is the hook
-            first = sentences[0] if sentences else tshort.split('\n')[0]
-            # 간단 요약: 너무 긴 문장은 1줄로 자르고 길이 제한
-            results['hooking'] = (first or '')[:140]
-        if not results['structure']:
-            if sentences:
-                n = len(sentences)
-                q1 = sentences[0]
-                q2 = sentences[min(n//3, n-1)]
-                q3 = sentences[min(2*n//3, n-1)]
-                q4 = sentences[-1]
-                results['structure'] = f"기: {q1}\n승: {q2}\n전: {q3}\n결: {q4}"
+        # No local transcript fallbacks — keep empty if model failed
         # parse material into sections for new detail boxes
         material_sections = _parse_material_sections(results['material'])
         return {
-            'material': results['material'][:2000],
+            'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
             'material_core_materials': material_sections.get('core_materials') or None,
             'material_lang_patterns': material_sections.get('lang_patterns') or None,
             'material_emotion_points': material_sections.get('emotion_points') or None,
             'material_info_delivery': material_sections.get('info_delivery') or None,
-            'hooking': results['hooking'][:2000],
-            'narrative_structure': results['structure'][:4000],
+            'hooking': results['hooking'][:2000] if results['hooking'] else None,
+            'narrative_structure': results['structure'][:4000] if results['structure'] else None,
             'dopamine_graph': dopamine_graph,
             'analysis_transcript_len': len(transcript),
             'last_modified': int(time.time()*1000)
