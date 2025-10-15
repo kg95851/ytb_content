@@ -1497,7 +1497,8 @@ async function runAnalysisForIds(ids, opts = {}) {
         try {
           const saved = (payload && Array.isArray(payload.saved)) ? payload.saved.join(',') : '';
           const sample = (payload && payload.sample) ? JSON.stringify(payload.sample).slice(0, 200) : '';
-          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}${sample ? ` 샘플: ${sample}` : ''}`);
+          const debug = (payload && payload.debug) ? JSON.stringify(payload.debug).slice(0, 200) : '';
+          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}${sample ? ` 샘플: ${sample}` : ''}${debug ? ` 디버그: ${debug}` : ''}`);
         } catch {}
       }
       // 장시간 처리 시 리소스 안정화를 위해 1000개마다 렌더/캐시 청소성 갱신
