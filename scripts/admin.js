@@ -106,6 +106,9 @@ let selectedFile = null;
 let docIdToEdit = null;
 let isBulkDelete = false;
 let adminLastRows = [];
+// 대용량 모드: 기본 활성화. ids가 LARGE_THRESHOLD 이상이면 고성능 설정 적용
+const LARGE_MODE = true;
+const LARGE_THRESHOLD = 600;
 
 // --------- Favorites (localStorage) ---------
 const FAV_STORE_KEY = 'admin_favorites_groups_v1';
@@ -1356,7 +1359,8 @@ async function runAnalysisForIds(ids, opts = {}) {
     return !(pre && pre.transcript_unavailable === true);
   });
   // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
-  const conc = 6; // 분석 동시성 고정(과도한 호출로 인한 품질 저하/오류 방지)
+  // 대용량 모드에서는 동시성 약간 상향, 그렇지 않으면 6 유지
+  const conc = (opts && opts.large) ? 8 : 6;
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1435,7 +1439,8 @@ async function runAnalysisForIds(ids, opts = {}) {
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('분석할 항목을 선택하세요.'); return; }
-        await runAnalysisForIds(ids);
+  const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
+  await runAnalysisForIds(ids, { large: useLarge });
     });
 
 runAnalysisAllBtn?.addEventListener('click', async () => {
@@ -1443,7 +1448,8 @@ runAnalysisAllBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
   const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
   if (!ok) return;
-        await runAnalysisForIds(ids);
+  const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
+  await runAnalysisForIds(ids, { large: useLarge });
     });
 
 // ---------- Comments (basic, optional) ----------
