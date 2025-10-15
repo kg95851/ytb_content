@@ -1861,6 +1861,39 @@ resetTranscriptSelectedBtn?.addEventListener('click', async () => {
   }
 });
 
+// --- Optional: 분석 필드만 초기화(기승전결/후킹/패턴 4종 + 메인아이디어/핵심소재)
+// 트리거는 admin.html 새 버튼에서 연결 가능: id="reset-analysis-fields-btn"
+document.getElementById('reset-analysis-fields-btn')?.addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+  if (!ids.length) { alert('초기화할 항목을 선택하세요.'); return; }
+  const ok = confirm(`선택된 ${ids.length}개의 분석 필드(기승전결/후킹/반복패턴/감정몰입/정보전달/핵심소재)만 비웁니다. 계속할까요?`);
+  if (!ok) return;
+  const BATCH = 500; let cleared = 0;
+  const patch = {
+    material_core_materials: null,
+    material_lang_patterns: null,
+    material_emotion_points: null,
+    material_info_delivery: null,
+    hooking: null,
+    narrative_structure: null,
+    last_modified: Date.now()
+  };
+  try {
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const slice = ids.slice(i, i + BATCH);
+      const rows = slice.map(id => ({ id, ...patch }));
+      const { error } = await supabase.from('videos').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+      cleared += slice.length;
+      analysisBannerText && (analysisBannerText.textContent = `분석 필드 초기화 ${cleared}/${ids.length}`);
+    }
+    appendAnalysisLog(`분석 필드 초기화 완료: ${cleared}`);
+    await refreshRowsByIds(ids);
+  } catch (e) {
+    appendAnalysisLog(`분석 필드 초기화 실패: ${e?.message || e}`);
+  }
+});
+
 
 // ---------- Utils ----------
 function stableHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; } return Math.abs(h).toString(36); }
