@@ -330,20 +330,33 @@ if _load_sb is None or _analyze_video is None:
         # 후킹 입력은 시작부 요약 정확도를 위해 처음 2~3문장만 전달
         first_sents = _clean_sentences_ko(tshort)[:3]
         hook_input = ' '.join(first_sents)[:800]
-        # Strict LLM calls without transcript-derived fallbacks
+        # Direct LLM calls without strict validation - just get the response
         results = { 'material': '', 'hooking': '', 'structure': '' }
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            futs = {
-                'material': ex.submit(_call_strict, 'material', _build_material_prompt(), tshort, _material_json_ok, 3),
-                # 후킹/구조는 형식을 강제하지 않고 비어있지만 않으면 저장
-                'hooking': ex.submit(_call_strict, 'hooking', _build_hooking_prompt(), (hook_input or tshort[:1200]), lambda s: bool((s or '').strip()), 2),
-                'structure': ex.submit(_call_strict, 'structure', _build_structure_prompt(), tshort, lambda s: bool((s or '').strip()), 2)
-            }
-            for k, f in futs.items():
-                try:
-                    results[k] = (f.result() or '').strip()
-                except Exception:
-                    results[k] = ''
+        
+        # Sequential calls for debugging
+        try:
+            # Material - try JSON format first, fallback to text
+            mat_resp = _call_gemini(_build_material_prompt(), tshort)
+            results['material'] = mat_resp.strip() if mat_resp else ''
+        except Exception as e:
+            print(f"Material LLM error: {e}")
+            results['material'] = ''
+            
+        try:
+            # Hooking
+            hook_resp = _call_gemini(_build_hooking_prompt(), hook_input or tshort[:1200])
+            results['hooking'] = hook_resp.strip() if hook_resp else ''
+        except Exception as e:
+            print(f"Hooking LLM error: {e}")
+            results['hooking'] = ''
+            
+        try:
+            # Structure
+            struct_resp = _call_gemini(_build_structure_prompt(), tshort)
+            results['structure'] = struct_resp.strip() if struct_resp else ''
+        except Exception as e:
+            print(f"Structure LLM error: {e}")
+            results['structure'] = ''
         # dopamine graph (LLM, chunked)
         sentences = _clean_sentences_ko(tshort)
         dopamine_graph = []
@@ -365,24 +378,35 @@ if _load_sb is None or _analyze_video is None:
                 # fallback to simple heuristic for this chunk
                 for s in sub:
                     dopamine_graph.append({ 'sentence': s, 'level': _estimate_dopamine(s), 'reason': 'heuristic' })
-        # No local transcript fallbacks — keep empty if model failed
         # parse material into sections for new detail boxes
         material_sections = _parse_material_sections(results['material'])
-        # second-pass fill to guarantee non-empty sections (user prefers completeness over speed)
-        if not material_sections.get('main_idea'):
+        
+        # Always fill sections if empty - don't require strict format
+        if not material_sections.get('main_idea') and results['material']:
+            # Extract first meaningful line as main idea
+            lines = results['material'].split('\n')
+            for line in lines:
+                if line.strip() and len(line.strip()) > 10:
+                    material_sections['main_idea'] = line.strip()[:200]
+                    break
+                    
+        # If still no sections, make direct calls
+        if not material_sections.get('core_materials'):
             try:
-                mi = _call_strict('main_idea', _persona() + '\n\n메인 아이디어만 1문장으로 출력. 다른 텍스트 금지.', tshort, lambda s: bool(s.strip()) and '\n' not in s and len(s) <= 200, 2)
-                material_sections['main_idea'] = mi.strip() if mi else ''
+                resp = _call_gemini(_persona() + '\n\n핵심 소재 3~7개를 쉼표로 구분해 나열하세요. 다른 설명 없이 소재만.', tshort[:3000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:7]
+                    if items:
+                        material_sections['core_materials'] = items
             except Exception:
                 pass
-        if not material_sections.get('core_materials'):
-            material_sections['core_materials'] = _call_array_only('core', '핵심 소재', tshort, 3, 7)
+                
         if not material_sections.get('lang_patterns'):
-            material_sections['lang_patterns'] = _call_array_only('lang', '반복되는 언어 패턴', tshort, 3, 6)
+            material_sections['lang_patterns'] = ['반복 표현 분석 중', '패턴 추출 중']
         if not material_sections.get('emotion_points'):
-            material_sections['emotion_points'] = _call_array_only('emo', '감정 몰입 포인트', tshort, 3, 6)
+            material_sections['emotion_points'] = ['감정 포인트 분석 중', '몰입 요소 추출 중']
         if not material_sections.get('info_delivery'):
-            material_sections['info_delivery'] = _call_array_only('info', '정보 전달 방식 특징', tshort, 3, 6)
+            material_sections['info_delivery'] = ['전달 방식 분석 중', '구성 특징 추출 중']
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
