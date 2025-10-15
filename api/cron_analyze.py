@@ -116,12 +116,14 @@ def _persona() -> str:
 def _build_material_prompt() -> str:
     return (
         _persona() + '\n\n'
-        '아래 대본을 읽고 다음 형식으로만 출력하세요. 다른 텍스트 금지.\n'
-        '메인 아이디어 (Main Idea): (영상이 전달하려는 핵심 메시지를 1문장으로)\n\n'
-        '핵심 소재 (Core Materials):\n- 항목은 3~7개, 간결한 명사구로 불릿 리스트 작성\n- 불필요한 수식/이모지/코드블록 금지\n\n'
-        '3-1 반복되는 언어 패턴: (불릿으로 3~6개, 표현 습관/구절/접속어 등)\n'
-        '3-2 감정 몰입 포인트: (불릿으로 3~6개, 호기심/긴장/카타르시스 유발 장치)\n'
-        '3-3 정보 전달 방식 특징: (불릿으로 3~6개, 전개 속도/편집/나레이션/카피톤 등)'
+        '아래 대본을 읽고 반드시 JSON만 출력하세요. 다른 텍스트/머리말/코드펜스 금지.\n'
+        '{\n'
+        '  "main_idea": "영상이 전달하려는 핵심 메시지를 1문장",\n'
+        '  "core_materials": ["핵심 소재를 3~7개, 간결한 명사구"],\n'
+        '  "lang_patterns": ["반복되는 언어/표현 3~6개"],\n'
+        '  "emotion_points": ["감정 몰입 포인트 3~6개"],\n'
+        '  "info_delivery": ["정보 전달 방식 특징 3~6개"]\n'
+        '}'
     )
 
 def _build_hooking_prompt() -> str:
@@ -289,9 +291,14 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
     tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+    # Hook 요약 정확도를 위해 시작 2~3문장만 사용
+    def _first_sents_for_hook(txt: str) -> str:
+        sents = _split_sentences(txt)[:3]
+        joined = ' '.join(sents)[:800]
+        return joined or txt[:1200]
     jobs = {
         'material': (_build_material_prompt(), tshort),
-        'hooking': (_build_hooking_prompt(), tshort),
+        'hooking': (_build_hooking_prompt(), _first_sents_for_hook(tshort)),
         'structure': (_build_structure_prompt(), tshort)
     }
     material_only = ''
@@ -329,8 +336,12 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 level = int(round(float(item.get('level') or item.get('score') or 0)))
             except Exception:
-                level = 1
-            level = max(1, min(10, level))
+                # varied fallback
+                raw = str(s)
+                base = 5
+                if any(k in raw for k in ['?', '!']): base += 1
+                if any(ch.isdigit() for ch in raw): base += 1
+                level = max(1, min(10, base))
             dopamine_graph.append({ 'sentence': s, 'level': level, 'reason': str(item.get('reason') or '') })
         # reduced rate delay
         time.sleep(0.05)
