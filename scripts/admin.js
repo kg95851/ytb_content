@@ -1458,7 +1458,27 @@ async function runAnalysisForIds(ids, opts = {}) {
       throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
     }
     if (j && j.error) throw new Error(j.error);
-    return { ok: true, saved: Array.isArray(j?.saved_keys) ? j.saved_keys : [] };
+    // 디버깅: 실제 저장된 값 확인
+    const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
+    const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
+    // 실제로 저장된 항목 재확인
+    if (saved.length > 0) {
+      try {
+        const { data: verify } = await supabase.from('videos').select('material, hooking, narrative_structure, material_core_materials, material_lang_patterns').eq('id', id).single();
+        const actualSaved = [];
+        if (verify) {
+          if (verify.material) actualSaved.push('material');
+          if (verify.hooking) actualSaved.push('hooking');
+          if (verify.narrative_structure) actualSaved.push('narrative_structure');
+          if (Array.isArray(verify.material_core_materials) && verify.material_core_materials.length > 0) actualSaved.push('material_core_materials');
+          if (Array.isArray(verify.material_lang_patterns) && verify.material_lang_patterns.length > 0) actualSaved.push('material_lang_patterns');
+        }
+        if (actualSaved.length < saved.length) {
+          appendAnalysisLog(`(${id}) 저장 불일치: 서버=${saved.length}개, DB=${actualSaved.length}개 [실제: ${actualSaved.join(',')}]`);
+        }
+      } catch {}
+    }
+    return { ok: true, saved, skipped };
   };
   const { done, failed: failedCnt } = await processInBatches(ids, worker, {
     concurrency: conc,
@@ -1476,7 +1496,8 @@ async function runAnalysisForIds(ids, opts = {}) {
         try { await refreshRowsByIds([id]); } catch {}
         try {
           const saved = (payload && Array.isArray(payload.saved)) ? payload.saved.join(',') : '';
-          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}`);
+          const sample = (payload && payload.sample) ? JSON.stringify(payload.sample).slice(0, 200) : '';
+          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}${sample ? ` 샘플: ${sample}` : ''}`);
         } catch {}
       }
       // 장시간 처리 시 리소스 안정화를 위해 1000개마다 렌더/캐시 청소성 갱신
