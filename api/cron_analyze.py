@@ -274,6 +274,9 @@ def _fetch_transcript(video_url: str, preferred_langs: List[str]) -> str:
 
 
 def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
+    # Hard skip when transcript is known unavailable
+    if doc.get('transcript_unavailable') is True:
+        return {}
     youtube_url = doc.get('youtube_url')
     if not youtube_url:
         return {}
