@@ -272,7 +272,7 @@ if _load_sb is None or _analyze_video is None:
         except Exception:
             return False
 
-    def _call_strict(kind: str, prompt: str, content: str, validator, tries: int = 2) -> str:
+    def _call_strict(kind: str, prompt: str, content: str, validator, tries: int = 3) -> str:
         last = ''
         for _ in range(max(1, tries)):
             last = (_call_gemini(prompt, content) or '').strip()
@@ -283,6 +283,23 @@ if _load_sb is None or _analyze_video is None:
             except Exception:
                 pass
         return last
+
+    def _call_array_only(kind: str, label: str, text: str, min_len: int = 3, max_len: int = 8) -> list:
+        prompt = (
+            _persona() + '\n\n'
+            f'아래 대본을 참고해 "{label}" 항목을 {min_len}~{max_len}개 추출하세요.\n'
+            '반드시 JSON 배열로만 출력하세요. 예: ["항목1","항목2"]\n'
+            '불릿/설명/코드펜스/기타 텍스트 금지.'
+        )
+        out = []
+        try:
+            raw = _call_gemini(prompt, text)
+            arr = json.loads(raw)
+            if isinstance(arr, list):
+                out = [str(x).strip() for x in arr if str(x).strip()][:max_len]
+        except Exception:
+            out = []
+        return out
 
     def _analyze_video_fast(doc):  # type: ignore
         transcript = (doc or {}).get('transcript_text') or ''
@@ -331,6 +348,21 @@ if _load_sb is None or _analyze_video is None:
         # No local transcript fallbacks — keep empty if model failed
         # parse material into sections for new detail boxes
         material_sections = _parse_material_sections(results['material'])
+        # second-pass fill to guarantee non-empty sections (user prefers completeness over speed)
+        if not material_sections.get('main_idea'):
+            try:
+                mi = _call_strict('main_idea', _persona() + '\n\n메인 아이디어만 1문장으로 출력. 다른 텍스트 금지.', tshort, lambda s: bool(s.strip()) and '\n' not in s and len(s) <= 200, 2)
+                material_sections['main_idea'] = mi.strip() if mi else ''
+            except Exception:
+                pass
+        if not material_sections.get('core_materials'):
+            material_sections['core_materials'] = _call_array_only('core', '핵심 소재', tshort, 3, 7)
+        if not material_sections.get('lang_patterns'):
+            material_sections['lang_patterns'] = _call_array_only('lang', '반복되는 언어 패턴', tshort, 3, 6)
+        if not material_sections.get('emotion_points'):
+            material_sections['emotion_points'] = _call_array_only('emo', '감정 몰입 포인트', tshort, 3, 6)
+        if not material_sections.get('info_delivery'):
+            material_sections['info_delivery'] = _call_array_only('info', '정보 전달 방식 특징', tshort, 3, 6)
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
