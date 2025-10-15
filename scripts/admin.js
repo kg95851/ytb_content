@@ -1229,6 +1229,18 @@ async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
   }
 }
 
+// fetch 타임아웃 유틸
+async function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    return res;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // --- 공용 처리기: 병렬 실행 + 키 로테이션 ---
 function getStoredKeysForRotation() {
   const keys = getStoredYoutubeApiKeys();
@@ -1367,7 +1379,7 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    const res = await fetch('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 180000);
     let j = null; try { j = await res.json(); } catch {}
     if (!res.ok) {
       const stage = j && j.stage ? j.stage : '';
@@ -1375,7 +1387,7 @@ async function runAnalysisForIds(ids, opts = {}) {
       const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
       appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
       if (trace) appendAnalysisLog(`trace: ${trace}`);
-      // 환경 변수 진단(1회/간헐적으로만 필요하지만 간단하게 유지)
+      // 환경 변수 진단(간헐)
       try {
         const dbgRes = await fetch('/api/analyze_one/debug');
         const dbg = await dbgRes.json();
