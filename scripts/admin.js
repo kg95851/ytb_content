@@ -998,7 +998,8 @@ async function processDataAndUpload(data) {
       if (item.youtube_url && isEmptyStringValue(exist.youtube_url)) { upd.youtube_url = item.youtube_url; has = true; }
       if (item.group_name && isEmptyStringValue(exist.group_name)) { upd.group_name = item.group_name; has = true; }
       if (item.template_type && isEmptyStringValue(exist.template_type)) { upd.template_type = item.template_type; has = true; }
-      if (canWriteUpdateDate && item.update_date) { upd.update_date = item.update_date; has = true; }
+      // 기존 row에 update_date가 이미 있으면 유지(최초 업로드일 고정). 비어있을 때만 채움
+      if (canWriteUpdateDate && item.update_date && isEmptyStringValue(exist.update_date)) { upd.update_date = item.update_date; has = true; }
       if (has) { upd.last_modified = now; toUpdate.push(upd); }
     }
   }
