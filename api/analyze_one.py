@@ -333,30 +333,33 @@ if _load_sb is None or _analyze_video is None:
         # Direct LLM calls without strict validation - just get the response
         results = { 'material': '', 'hooking': '', 'structure': '' }
         
-        # Sequential calls for debugging
+        # Sequential calls with simpler prompts
         try:
-            # Material - try JSON format first, fallback to text
-            mat_resp = _call_gemini(_build_material_prompt(), tshort)
-            results['material'] = mat_resp.strip() if mat_resp else ''
+            # Material - simplified prompt
+            simple_mat = "이 영상의 핵심 소재를 3줄로 요약하세요:\n\n" + tshort[:3000]
+            mat_resp = _call_gemini(simple_mat, '')
+            results['material'] = mat_resp.strip() if mat_resp else '영상 소재 분석'
         except Exception as e:
             print(f"Material LLM error: {e}")
-            results['material'] = ''
+            results['material'] = f'소재 분석 오류: {str(e)[:100]}'
             
         try:
-            # Hooking
-            hook_resp = _call_gemini(_build_hooking_prompt(), hook_input or tshort[:1200])
-            results['hooking'] = hook_resp.strip() if hook_resp else ''
+            # Hooking - simplified
+            simple_hook = "첫 문장의 후킹 포인트를 1줄로 설명하세요:\n\n" + (hook_input or tshort[:500])
+            hook_resp = _call_gemini(simple_hook, '')
+            results['hooking'] = hook_resp.strip() if hook_resp else '후킹 분석'
         except Exception as e:
             print(f"Hooking LLM error: {e}")
-            results['hooking'] = ''
+            results['hooking'] = f'후킹 분석 오류: {str(e)[:100]}'
             
         try:
-            # Structure
-            struct_resp = _call_gemini(_build_structure_prompt(), tshort)
-            results['structure'] = struct_resp.strip() if struct_resp else ''
+            # Structure - simplified
+            simple_struct = "영상 구조를 기승전결 4줄로 요약하세요:\n\n" + tshort[:4000]
+            struct_resp = _call_gemini(simple_struct, '')
+            results['structure'] = struct_resp.strip() if struct_resp else '구조 분석'
         except Exception as e:
             print(f"Structure LLM error: {e}")
-            results['structure'] = ''
+            results['structure'] = f'구조 분석 오류: {str(e)[:100]}'
         # dopamine graph (LLM, chunked)
         sentences = _clean_sentences_ko(tshort)
         dopamine_graph = []
@@ -401,12 +404,36 @@ if _load_sb is None or _analyze_video is None:
             except Exception:
                 pass
                 
-        if not material_sections.get('lang_patterns'):
-            material_sections['lang_patterns'] = ['반복 표현 분석 중', '패턴 추출 중']
-        if not material_sections.get('emotion_points'):
-            material_sections['emotion_points'] = ['감정 포인트 분석 중', '몰입 요소 추출 중']
-        if not material_sections.get('info_delivery'):
-            material_sections['info_delivery'] = ['전달 방식 분석 중', '구성 특징 추출 중']
+        # Ensure all arrays have actual content
+        if not material_sections.get('lang_patterns') or material_sections['lang_patterns'] == ['반복 표현 분석 중', '패턴 추출 중']:
+            try:
+                resp = _call_gemini("반복되는 언어 패턴 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['lang_patterns'] = items
+            except:
+                material_sections['lang_patterns'] = ['패턴 분석 실패']
+                
+        if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
+            try:
+                resp = _call_gemini("감정 몰입 포인트 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['emotion_points'] = items
+            except:
+                material_sections['emotion_points'] = ['감정 분석 실패']
+                
+        if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
+            try:
+                resp = _call_gemini("정보 전달 특징 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['info_delivery'] = items
+            except:
+                material_sections['info_delivery'] = ['전달 방식 분석 실패']
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
