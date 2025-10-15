@@ -199,6 +199,35 @@
                 </div>
 
                 <div class="upload-box" style="margin-top: 2rem;">
+                    <h2>성능 설정(대용량 모드)</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: .75rem;">대용량 모드는 선택/전체 대상이 임계값 이상일 때 자동으로 동시성을 높여 처리 속도를 올립니다.</p>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="perf-large-mode"> 대용량 모드 사용</label>
+                    </div>
+                    <div class="form-group">
+                        <label for="perf-large-threshold">대용량 임계값(개)</label>
+                        <input type="number" id="perf-large-threshold" min="1" value="600" />
+                    </div>
+                    <div class="form-group" style="display:flex; gap:12px;">
+                        <div style="flex:1;">
+                            <label for="perf-conc-normal">분석 동시성(기본)</label>
+                            <input type="number" id="perf-conc-normal" min="1" max="12" value="6" />
+                        </div>
+                        <div style="flex:1;">
+                            <label for="perf-conc-large">분석 동시성(대용량)</label>
+                            <input type="number" id="perf-conc-large" min="1" max="12" value="8" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="perf-bulk-silent"> 전체 실행 시 확인창 생략</label>
+                    </div>
+                    <div class="form-group">
+                        <button id="perf-save-btn" class="btn btn-primary">성능 설정 저장</button>
+                    </div>
+                    <p id="perf-save-status" class="info-message" style="margin-top: 1rem; text-align: left;"></p>
+                </div>
+
+                <div class="upload-box" style="margin-top: 2rem;">
                     <h2>예약 실행</h2>
                     <p style="color: var(--text-secondary); margin-bottom: .75rem;">지정한 시간에 선택 항목 또는 전체 영상 분석을 자동 실행합니다. (대시보드가 열려 있어야 실행됩니다)</p>
                     <div class="form-group">
