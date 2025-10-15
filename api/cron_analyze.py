@@ -73,7 +73,7 @@ def _call_gemini(system_prompt: str, user_content: str) -> str:
                 continue
             url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
             try:
-                res = requests.post(url, json=payload, timeout=90)
+                res = requests.post(url, json=payload, timeout=180)
                 if res.status_code == 404:
                     errors.append(f"{api_ver}/{model}:404")
                     continue
@@ -147,6 +147,28 @@ def _build_structure_prompt() -> str:
 def _build_dopamine_prompt(sentences: List[str]) -> str:
     header = '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.'
     return header + '\n\n문장 배열:\n' + json.dumps(sentences, ensure_ascii=False)
+
+def _is_md_table(text: str) -> bool:
+    t = (text or '').strip()
+    return '|' in t and '\n' in t and t.count('|') >= 6
+
+def _looks_like_structure_table(text: str) -> bool:
+    t = (text or '').lower()
+    return ('| 기' in t) and ('| 승' in t) and ('| 전' in t) and ('| 결' in t)
+
+def _material_json_ok(text: str) -> bool:
+    try:
+        obj = json.loads(text)
+        return (
+            isinstance(obj, dict) and
+            isinstance(obj.get('main_idea', ''), str) and
+            isinstance(obj.get('core_materials', []), list) and
+            isinstance(obj.get('lang_patterns', []), list) and
+            isinstance(obj.get('emotion_points', []), list) and
+            isinstance(obj.get('info_delivery', []), list)
+        )
+    except Exception:
+        return False
 
 
 def _build_analysis_prompt() -> str:
@@ -296,28 +318,32 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
         sents = _split_sentences(txt)[:3]
         joined = ' '.join(sents)[:800]
         return joined or txt[:1200]
-    jobs = {
-        'material': (_build_material_prompt(), tshort),
-        'hooking': (_build_hooking_prompt(), _first_sents_for_hook(tshort)),
-        'structure': (_build_structure_prompt(), tshort)
-    }
+    # Strict LLM calls with validation (no local fallbacks)
     material_only = ''
     hooking_text = ''
     structure_text = ''
     with ThreadPoolExecutor(max_workers=3) as ex:
-        fut_map = { ex.submit(_call_gemini, p, txt): name for name, (p, txt) in jobs.items() }
-        for fut in as_completed(fut_map):
-            name = fut_map[fut]
+        def call_strict(prompt, content, validator, tries=2):
+            last = ''
+            for _ in range(max(1, tries)):
+                last = (_call_gemini(prompt, content) or '').strip()
+                if validator(last):
+                    break
+                time.sleep(0.3)
+            return last
+        futs = {
+            'material': ex.submit(call_strict, _build_material_prompt(), tshort, _material_json_ok, 2),
+            'hooking': ex.submit(call_strict, _build_hooking_prompt(), _first_sents_for_hook(tshort), lambda s: _is_md_table(s) and ('패턴' in s or '후킹' in s), 2),
+            'structure': ex.submit(call_strict, _build_structure_prompt(), tshort, _looks_like_structure_table, 2)
+        }
+        for k, f in futs.items():
             try:
-                val = (fut.result() or '').strip()
+                val = (f.result() or '').strip()
             except Exception:
                 val = ''
-            if name == 'material':
-                material_only = val
-            elif name == 'hooking':
-                hooking_text = val
-            elif name == 'structure':
-                structure_text = val
+            if k == 'material': material_only = val
+            elif k == 'hooking': hooking_text = val
+            else: structure_text = val
     # Analysis(카드/세부)
     analysis_text = _call_gemini(_build_analysis_prompt(), tshort)
     # Categories
