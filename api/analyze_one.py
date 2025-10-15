@@ -440,23 +440,42 @@ def analyze_one():
         # use faster analyzer
         updated = _analyze_video_fast(video) or {}
         if updated:
-            # 스키마에 없는 컬럼은 제거
+            # 스키마에 없는 컬럼은 제거 + None 값 제외
             allowed = set(video.keys())
-            payload = { k: v for k, v in updated.items() if k in allowed }
-            if payload:
+            payload = { k: v for k, v in updated.items() if k in allowed and v is not None }
+            # 빈 배열도 제외 (DB가 null을 기대하는 경우)
+            filtered_payload = {}
+            for k, v in payload.items():
+                if isinstance(v, list) and len(v) == 0:
+                    continue  # skip empty arrays
+                if isinstance(v, str) and v.strip() == '':
+                    continue  # skip empty strings
+                filtered_payload[k] = v
+            if filtered_payload:
                 stage = 'update'
-                sb.table('videos').update(payload).eq('id', vid).execute()
+                sb.table('videos').update(filtered_payload).eq('id', vid).execute()
+            payload = filtered_payload  # use filtered for response
         wanted = list(updated.keys()) if updated else []
         saved = list(payload.keys()) if updated else []
         skipped = [k for k in wanted if k not in (saved or [])]
         # 디버깅: 실제 저장된 값 샘플 확인
         sample_fields = {}
+        debug_info = {}
         if updated:
-            for k in ['material', 'hooking', 'narrative_structure']:
+            for k in ['material', 'hooking', 'narrative_structure', 'material_core_materials', 'material_lang_patterns']:
                 v = updated.get(k)
-                if v:
-                    sample_fields[k] = str(v)[:100] + '...' if len(str(v)) > 100 else str(v)
-        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields })
+                if v is None:
+                    debug_info[k] = 'None'
+                elif isinstance(v, list):
+                    debug_info[k] = f'list({len(v)} items)'
+                    if len(v) > 0:
+                        sample_fields[k] = str(v[0])[:50] if v else '[]'
+                elif isinstance(v, str):
+                    debug_info[k] = f'str({len(v)} chars)'
+                    sample_fields[k] = v[:100] + '...' if len(v) > 100 else v
+                else:
+                    debug_info[k] = f'{type(v).__name__}'
+        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields, 'debug': debug_info })
     except Exception as e:
         app.logger.exception('analyze_one failed')
         return jsonify({ 'ok': False, 'error': str(e), 'stage': locals().get('stage', 'unknown'), 'trace': traceback.format_exc()[:2000] }), 500
