@@ -1330,7 +1330,7 @@ async function runAnalysisForIds(ids, opts = {}) {
   // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
   const preById = new Map();
   try {
-    const FIELDS = 'id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure';
+    const FIELDS = 'id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure, material_main_idea, material_core_materials, material_lang_patterns, material_emotion_points, material_info_delivery';
     const CHUNK = 1000;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const slice = ids.slice(i, i + CHUNK);
@@ -1344,12 +1344,21 @@ async function runAnalysisForIds(ids, opts = {}) {
     return !(pre && pre.transcript_unavailable === true);
   });
   // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
-  const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
+  const conc = 6; // 분석 동시성 고정(과도한 호출로 인한 품질 저하/오류 방지)
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
     if (pre && pre.transcript_unavailable) { appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`); return { skip: true }; }
-    if (pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure)) { appendAnalysisLog(`(${id}) 스킵: 이미 분석됨`); return { skip: true }; }
+    // 재분석 조건: 기존 분석이 있어도 일부 섹션이 비어있다면 재분석 허용
+    const hasAnyAnalysis = pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure);
+    const missingAny = pre && (
+      !pre.material || !pre.hooking || !pre.narrative_structure ||
+      !Array.isArray(pre.material_core_materials) || pre.material_core_materials.length === 0 ||
+      !Array.isArray(pre.material_lang_patterns) || pre.material_lang_patterns.length === 0 ||
+      !Array.isArray(pre.material_emotion_points) || pre.material_emotion_points.length === 0 ||
+      !Array.isArray(pre.material_info_delivery) || pre.material_info_delivery.length === 0
+    );
+    if (hasAnyAnalysis && !missingAny) { appendAnalysisLog(`(${id}) 스킵: 분석완료(누락없음)`); return { skip: true }; }
     if (pre && !(String(pre.transcript_text || '').trim().length > 0)) { appendAnalysisLog(`(${id}) 스킵: 대본 없음`); return { skip: true }; }
     // 안전확인(경합 방지)
     try {
