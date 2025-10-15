@@ -606,7 +606,8 @@ function renderVideoView() {
         const lastChecked = r.update_date ? new Date(r.update_date).toLocaleDateString('ko-KR') : (r.views_last_checked_at ? new Date(r.views_last_checked_at).toLocaleString() : '-');
         const analyzed = (Array.isArray(r.dopamine_graph) && r.dopamine_graph.length > 0) || r.material || r.hooking || r.narrative_structure;
         const noT = r.transcript_unavailable === true;
-        const statusChip = analyzed ? '<span class="group-tag" style="background:#10b981;">분석완료</span>' : (noT ? '<span class="group-tag" style="background:#6b7280;">대본없음</span>' : '');
+        const hasT = !!(r.transcript_text && String(r.transcript_text).trim().length > 0);
+        const statusChip = analyzed ? '<span class="group-tag" style="background:#10b981;">분석완료</span>' : (noT ? '<span class="group-tag" style="background:#6b7280;">대본없음</span>' : (hasT ? '<span class="group-tag" style="background:#3b82f6;">대본있음</span>' : ''));
         return `
             <tr>
             <td>${startIndex + idx + 1}</td>
