@@ -1397,7 +1397,7 @@ async function runAnalysisForIds(ids, opts = {}) {
       throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
     }
     if (j && j.error) throw new Error(j.error);
-    return { ok: true };
+    return { ok: true, saved: Array.isArray(j?.saved_keys) ? j.saved_keys : [] };
   };
   const { done, failed: failedCnt } = await processInBatches(ids, worker, {
     concurrency: conc,
@@ -1411,7 +1411,13 @@ async function runAnalysisForIds(ids, opts = {}) {
       else { failed++; }
       processed = success + failed + skipped;
       analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-      if (ok) { try { await refreshRowsByIds([id]); } catch {} }
+      if (ok) {
+        try { await refreshRowsByIds([id]); } catch {}
+        try {
+          const saved = (payload && Array.isArray(payload.saved)) ? payload.saved.join(',') : '';
+          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}`);
+        } catch {}
+      }
       // 장시간 처리 시 리소스 안정화를 위해 1000개마다 렌더/캐시 청소성 갱신
       if (processed % 1000 === 0) {
         try { await new Promise(r => setTimeout(r, 50)); } catch {}
