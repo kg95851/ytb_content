@@ -323,7 +323,7 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
     hooking_text = ''
     structure_text = ''
     with ThreadPoolExecutor(max_workers=3) as ex:
-        def call_strict(prompt, content, validator, tries=2):
+        def call_strict(prompt, content, validator, tries=3):
             last = ''
             for _ in range(max(1, tries)):
                 last = (_call_gemini(prompt, content) or '').strip()
@@ -448,11 +448,24 @@ def _analyze_video(doc: Dict[str, Any]) -> Dict[str, Any]:
         return main_idea, core, lang, emo, info
     try:
         mi, core, lang, emo, info = _split_material_sections(material_only)
-        if mi: updated['material_main_idea'] = mi[:1000]
-        if core: updated['material_core_materials'] = core
-        if lang: updated['material_lang_patterns'] = lang
-        if emo: updated['material_emotion_points'] = emo
-        if info: updated['material_info_delivery'] = info
+        if not mi:
+            # second-pass: main idea only (JSON-불필요)
+            def _one_line_ok(s):
+                s = (s or '').strip(); return bool(s) and ('\n' not in s) and len(s) <= 200
+            mi = call_strict(_persona() + '\n\n메인 아이디어만 1문장으로 출력. 다른 텍스트 금지.', tshort, _one_line_ok, 2)
+        if not core:
+            core = _safe_json_arr(_call_gemini(_persona() + '\n\n핵심 소재만 JSON 배열로 3~7개 출력. 다른 텍스트 금지.', tshort)) or []
+        if not lang:
+            lang = _safe_json_arr(_call_gemini(_persona() + '\n\n반복되는 언어 패턴만 JSON 배열로 3~6개 출력. 다른 텍스트 금지.', tshort)) or []
+        if not emo:
+            emo = _safe_json_arr(_call_gemini(_persona() + '\n\n감정 몰입 포인트만 JSON 배열로 3~6개 출력. 다른 텍스트 금지.', tshort)) or []
+        if not info:
+            info = _safe_json_arr(_call_gemini(_persona() + '\n\n정보 전달 방식 특징만 JSON 배열로 3~6개 출력. 다른 텍스트 금지.', tshort)) or []
+        if mi: updated['material_main_idea'] = str(mi)[:1000]
+        if core: updated['material_core_materials'] = [str(x) for x in core][:12]
+        if lang: updated['material_lang_patterns'] = [str(x) for x in lang][:12]
+        if emo: updated['material_emotion_points'] = [str(x) for x in emo][:12]
+        if info: updated['material_info_delivery'] = [str(x) for x in info][:12]
     except Exception:
         pass
 
