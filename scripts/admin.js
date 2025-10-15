@@ -56,6 +56,7 @@ const perfConcLargeInput = document.getElementById('perf-conc-large');
 const perfBulkSilentInput = document.getElementById('perf-bulk-silent');
 const perfSaveBtn = document.getElementById('perf-save-btn');
 const perfSaveStatus = document.getElementById('perf-save-status');
+const perfSeqAnalysisInput = document.getElementById('perf-seq-analysis');
 
 // Schedule
 const scheduleCreateBtn = document.getElementById('schedule-create-btn');
@@ -121,6 +122,7 @@ let LARGE_THRESHOLD = 600;
 let BULK_SILENT = true;
 let CONC_NORMAL = 6;
 let CONC_LARGE = 8;
+let SEQ_ANALYSIS = true; // 기본: 순차 실행
 
 function loadPerfSettings() {
   try {
@@ -132,6 +134,7 @@ function loadPerfSettings() {
     if (typeof s.bulkSilent === 'boolean') BULK_SILENT = s.bulkSilent;
     if (Number.isFinite(s.concNormal)) CONC_NORMAL = s.concNormal;
     if (Number.isFinite(s.concLarge)) CONC_LARGE = s.concLarge;
+    if (typeof s.seqAnalysis === 'boolean') SEQ_ANALYSIS = s.seqAnalysis;
   } catch {}
 }
 
@@ -142,10 +145,11 @@ function savePerfSettings() {
       largeThreshold: Math.max(1, Number(perfLargeThresholdInput?.value || LARGE_THRESHOLD)),
       bulkSilent: !!perfBulkSilentInput?.checked,
       concNormal: Math.max(1, Math.min(12, Number(perfConcNormalInput?.value || CONC_NORMAL))),
-      concLarge: Math.max(1, Math.min(12, Number(perfConcLargeInput?.value || CONC_LARGE)))
+      concLarge: Math.max(1, Math.min(12, Number(perfConcLargeInput?.value || CONC_LARGE))),
+      seqAnalysis: !!perfSeqAnalysisInput?.checked
     };
     localStorage.setItem('perf_settings_v1', JSON.stringify(s));
-    LARGE_MODE = s.largeMode; LARGE_THRESHOLD = s.largeThreshold; BULK_SILENT = s.bulkSilent; CONC_NORMAL = s.concNormal; CONC_LARGE = s.concLarge;
+    LARGE_MODE = s.largeMode; LARGE_THRESHOLD = s.largeThreshold; BULK_SILENT = s.bulkSilent; CONC_NORMAL = s.concNormal; CONC_LARGE = s.concLarge; SEQ_ANALYSIS = s.seqAnalysis;
     if (perfSaveStatus) { perfSaveStatus.textContent = '저장되었습니다.'; perfSaveStatus.style.color = 'green'; }
   } catch (e) {
     if (perfSaveStatus) { perfSaveStatus.textContent = '저장 실패: ' + (e?.message || e); perfSaveStatus.style.color = 'red'; }
@@ -418,6 +422,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (perfConcNormalInput) perfConcNormalInput.value = String(CONC_NORMAL);
     if (perfConcLargeInput) perfConcLargeInput.value = String(CONC_LARGE);
     if (perfBulkSilentInput) perfBulkSilentInput.checked = !!BULK_SILENT;
+    if (perfSeqAnalysisInput) perfSeqAnalysisInput.checked = !!SEQ_ANALYSIS;
     perfSaveBtn?.addEventListener('click', savePerfSettings);
   } catch {}
   // 즐겨찾기 사이드바 초기 렌더 및 이벤트 바인딩
@@ -1411,9 +1416,8 @@ async function runAnalysisForIds(ids, opts = {}) {
     const pre = preById.get(id);
     return !(pre && pre.transcript_unavailable === true);
   });
-  // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
-  // 대용량 모드에서는 동시성 상향(설정값 사용), 그렇지 않으면 기본값 사용
-  const conc = (opts && opts.large) ? CONC_LARGE : CONC_NORMAL;
+  // 동시 실행: 순차 옵션이 켜져있으면 1개씩 처리, 아니면 설정값 사용
+  const conc = SEQ_ANALYSIS ? 1 : ((opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1866,16 +1870,19 @@ resetTranscriptSelectedBtn?.addEventListener('click', async () => {
 document.getElementById('reset-analysis-fields-btn')?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('초기화할 항목을 선택하세요.'); return; }
-  const ok = confirm(`선택된 ${ids.length}개의 분석 필드(기승전결/후킹/반복패턴/감정몰입/정보전달/핵심소재)만 비웁니다. 계속할까요?`);
+  const ok = confirm(`선택된 ${ids.length}개의 분석 필드(기승전결/후킹/반복패턴/감정몰입/정보전달/핵심소재 + 소재요약/material + 도파민그래프)를 비웁니다. 계속할까요?`);
   if (!ok) return;
   const BATCH = 500; let cleared = 0;
   const patch = {
+    material: null,
+    material_main_idea: null,
     material_core_materials: null,
     material_lang_patterns: null,
     material_emotion_points: null,
     material_info_delivery: null,
     hooking: null,
     narrative_structure: null,
+    dopamine_graph: null,
     last_modified: Date.now()
   };
   try {
