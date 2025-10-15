@@ -80,12 +80,14 @@ if _load_sb is None or _analyze_video is None:
     def _build_material_prompt() -> str:
         return (
             _persona() + '\n\n'
-            '아래 대본을 읽고 다음 형식으로만 출력하세요. 다른 텍스트 금지.\n'
-            '메인 아이디어 (Main Idea): (영상이 전달하려는 핵심 메시지를 1문장으로)\n\n'
-            '핵심 소재 (Core Materials):\n- 항목은 3~7개, 간결한 명사구로 불릿 리스트 작성\n- 불필요한 수식/이모지/코드블록 금지\n\n'
-            '3-1 반복되는 언어 패턴: (불릿으로 3~6개, 표현 습관/구절/접속어 등)\n'
-            '3-2 감정 몰입 포인트: (불릿으로 3~6개, 호기심/긴장/카타르시스 유발 장치)\n'
-            '3-3 정보 전달 방식 특징: (불릿으로 3~6개, 전개 속도/편집/나레이션/카피톤 등)'
+            '아래 대본을 읽고 반드시 JSON만 출력하세요. 다른 텍스트/머리말/코드펜스 금지.\n'
+            '{\n'
+            '  "main_idea": "영상이 전달하려는 핵심 메시지를 1문장",\n'
+            '  "core_materials": ["핵심 소재를 3~7개, 간결한 명사구"],\n'
+            '  "lang_patterns": ["반복되는 언어/표현 3~6개"],\n'
+            '  "emotion_points": ["감정 몰입 포인트 3~6개"],\n'
+            '  "info_delivery": ["정보 전달 방식 특징 3~6개"]\n'
+            '}'
         )
 
     def _build_hooking_prompt() -> str:
@@ -107,8 +109,8 @@ if _load_sb is None or _analyze_video is None:
         )
 
     def _parse_material_sections(text: str):
-        # best-effort parser for the material composite output
-        import re
+        # Prefer strict JSON parse; fallback to regex capture
+        import re, json as _json
         main_idea = ''
         core_materials = []
         lang_patterns = []
@@ -123,13 +125,29 @@ if _load_sb is None or _analyze_video is None:
                 'emotion_points': emotion_points,
                 'info_delivery': info_delivery
             }
-        # unify newlines
+        # Try JSON
+        try:
+            payload = _json.loads(t)
+            if isinstance(payload, dict):
+                main_idea = str(payload.get('main_idea') or '').strip()
+                core_materials = [str(x).strip() for x in (payload.get('core_materials') or []) if str(x).strip()][:12]
+                lang_patterns = [str(x).strip() for x in (payload.get('lang_patterns') or []) if str(x).strip()][:12]
+                emotion_points = [str(x).strip() for x in (payload.get('emotion_points') or []) if str(x).strip()][:12]
+                info_delivery = [str(x).strip() for x in (payload.get('info_delivery') or []) if str(x).strip()][:12]
+                return {
+                    'main_idea': main_idea,
+                    'core_materials': core_materials,
+                    'lang_patterns': lang_patterns,
+                    'emotion_points': emotion_points,
+                    'info_delivery': info_delivery
+                }
+        except Exception:
+            pass
+        # Fallback: header-based capture
         t = t.replace('\r', '')
-        # 1) main idea (after colon up to line end)
         m = re.search(r"메인\s*아이디어\s*\(Main\s*Idea\)\s*[:：]\s*(.+)", t)
         if m:
             main_idea = m.group(1).strip()
-        # 2) capture blocks by headers
         def capture_list_after(header_patterns, stop_patterns):
             pat = re.compile(header_patterns, re.I)
             stop = re.compile(stop_patterns, re.I) if stop_patterns else None
@@ -143,23 +161,18 @@ if _load_sb is None or _analyze_video is None:
                 if capturing:
                     if stop and stop.search(line):
                         break
-                    # bullet lines or non-empty paragraph lines
                     s = line.strip()
                     if not s:
                         continue
-                    # stop if next section header-like
                     if re.match(r"^\s*(메인\s*아이디어|핵심\s*소재|3-1|3-2|3-3)\b", s):
                         break
                     s = re.sub(r"^[-*•·]\s*", '', s)
                     acc.append(s)
-            # trim empties
             return [x for x in acc if x and len(x) > 1][:12]
-
         core_materials = capture_list_after(r"핵심\s*소재\s*\(Core\s*Materials\)\s*:?", r"^(3-1|3-2|3-3)\b")
         lang_patterns = capture_list_after(r"^(3-1\s*반복되는\s*언어\s*패턴)\b|반복되는\s*언어\s*패턴\s*[:：]", r"^(3-2|3-3)\b")
         emotion_points = capture_list_after(r"^(3-2\s*감정\s*몰입\s*포인트)\b|감정\s*몰입.*[:：]", r"^(3-3)\b")
         info_delivery = capture_list_after(r"^(3-3\s*정보\s*전달\s*방식\s*특징)\b|정보\s*전달\s*방식.*[:：]", None)
-
         return {
             'main_idea': main_idea,
             'core_materials': core_materials,
@@ -201,10 +214,28 @@ if _load_sb is None or _analyze_video is None:
         return out[:300]
 
     def _estimate_dopamine(sentence: str) -> int:
-        s = (sentence or '').lower()
-        score = 3
-        if any(k in s for k in ['충격', '반전', '경악', '미친', '대폭', '폭로', '소름', '!', '?']):
-            score += 5
+        # Richer heuristic for varied scores when LLM parsing fails
+        s = (sentence or '').strip()
+        s_lower = s.lower()
+        score = 5
+        # curiosity words
+        if any(k in s_lower for k in ['왜', '어떻게', '정말', '충격', '반전', '경악', '대박', '소름', '비밀', '최초', '금지', '경고']):
+            score += 2
+        # punctuation intensity
+        excl = s.count('!')
+        quest = s.count('?')
+        score += min(2, excl) + min(2, quest)
+        # numbers and superlatives
+        if any(ch.isdigit() for ch in s):
+            score += 1
+        if any(k in s_lower for k in ['가장', '최고', '최악', '첫', '완전']):
+            score += 1
+        # length normalization
+        ln = len(s)
+        if ln < 20:
+            score -= 1
+        elif ln > 120:
+            score -= 1
         return max(1, min(10, score))
 
     def _safe_json_arr(text: str):
