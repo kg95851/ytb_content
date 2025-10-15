@@ -56,7 +56,7 @@ if _load_sb is None or _analyze_video is None:
                     continue
                 url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                 try:
-                    res = requests.post(url, json=payload, timeout=90)
+                    res = requests.post(url, json=payload, timeout=180)
                     if res.status_code == 404:
                         errors.append(f"{api_ver}/{model}:404")
                         continue
@@ -225,9 +225,12 @@ if _load_sb is None or _analyze_video is None:
         # Trim overly long transcripts to improve latency
         max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
         tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+        # 후킹 입력은 시작부 요약 정확도를 위해 처음 2~3문장만 전달
+        first_sents = _clean_sentences_ko(tshort)[:3]
+        hook_input = ' '.join(first_sents)[:800]
         jobs = {
             'material': (_build_material_prompt(), tshort),
-            'hooking': (_build_hooking_prompt(), tshort),
+            'hooking': (_build_hooking_prompt(), hook_input or tshort[:1200]),
             'structure': (_build_structure_prompt(), tshort)
         }
         results = { 'material': '', 'hooking': '', 'structure': '' }
@@ -276,7 +279,8 @@ if _load_sb is None or _analyze_video is None:
         if not results['hooking']:
             # user preference: first sentence is the hook
             first = sentences[0] if sentences else tshort.split('\n')[0]
-            results['hooking'] = (first or '')[:200]
+            # 간단 요약: 너무 긴 문장은 1줄로 자르고 길이 제한
+            results['hooking'] = (first or '')[:140]
         if not results['structure']:
             if sentences:
                 n = len(sentences)
