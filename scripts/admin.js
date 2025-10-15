@@ -48,6 +48,14 @@ const ytKeysTextarea = document.getElementById('youtube-api-keys');
 const ytKeysSaveBtn = document.getElementById('save-youtube-keys-btn');
 const ytKeysTestBtn = document.getElementById('test-youtube-keys-btn');
 const ytKeysStatus = document.getElementById('youtube-keys-status');
+// Perf settings
+const perfLargeModeInput = document.getElementById('perf-large-mode');
+const perfLargeThresholdInput = document.getElementById('perf-large-threshold');
+const perfConcNormalInput = document.getElementById('perf-conc-normal');
+const perfConcLargeInput = document.getElementById('perf-conc-large');
+const perfBulkSilentInput = document.getElementById('perf-bulk-silent');
+const perfSaveBtn = document.getElementById('perf-save-btn');
+const perfSaveStatus = document.getElementById('perf-save-status');
 
 // Schedule
 const scheduleCreateBtn = document.getElementById('schedule-create-btn');
@@ -107,8 +115,42 @@ let docIdToEdit = null;
 let isBulkDelete = false;
 let adminLastRows = [];
 // 대용량 모드: 기본 활성화. ids가 LARGE_THRESHOLD 이상이면 고성능 설정 적용
-const LARGE_MODE = true;
-const LARGE_THRESHOLD = 600;
+let LARGE_MODE = true;
+let LARGE_THRESHOLD = 600;
+// 전체 작업 시 확인창 비활성화(자동 진행)
+let BULK_SILENT = true;
+let CONC_NORMAL = 6;
+let CONC_LARGE = 8;
+
+function loadPerfSettings() {
+  try {
+    const raw = localStorage.getItem('perf_settings_v1');
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (typeof s.largeMode === 'boolean') LARGE_MODE = s.largeMode;
+    if (Number.isFinite(s.largeThreshold)) LARGE_THRESHOLD = s.largeThreshold;
+    if (typeof s.bulkSilent === 'boolean') BULK_SILENT = s.bulkSilent;
+    if (Number.isFinite(s.concNormal)) CONC_NORMAL = s.concNormal;
+    if (Number.isFinite(s.concLarge)) CONC_LARGE = s.concLarge;
+  } catch {}
+}
+
+function savePerfSettings() {
+  try {
+    const s = {
+      largeMode: !!perfLargeModeInput?.checked,
+      largeThreshold: Math.max(1, Number(perfLargeThresholdInput?.value || LARGE_THRESHOLD)),
+      bulkSilent: !!perfBulkSilentInput?.checked,
+      concNormal: Math.max(1, Math.min(12, Number(perfConcNormalInput?.value || CONC_NORMAL))),
+      concLarge: Math.max(1, Math.min(12, Number(perfConcLargeInput?.value || CONC_LARGE)))
+    };
+    localStorage.setItem('perf_settings_v1', JSON.stringify(s));
+    LARGE_MODE = s.largeMode; LARGE_THRESHOLD = s.largeThreshold; BULK_SILENT = s.bulkSilent; CONC_NORMAL = s.concNormal; CONC_LARGE = s.concLarge;
+    if (perfSaveStatus) { perfSaveStatus.textContent = '저장되었습니다.'; perfSaveStatus.style.color = 'green'; }
+  } catch (e) {
+    if (perfSaveStatus) { perfSaveStatus.textContent = '저장 실패: ' + (e?.message || e); perfSaveStatus.style.color = 'red'; }
+  }
+}
 
 // --------- Favorites (localStorage) ---------
 const FAV_STORE_KEY = 'admin_favorites_groups_v1';
@@ -368,6 +410,16 @@ window.addEventListener('DOMContentLoaded', () => {
     scheduleTimeInput.value = formatDateTimeLocal(now);
   }
   restoreLocalSettings();
+  // 성능 설정 초기화
+  loadPerfSettings();
+  try {
+    if (perfLargeModeInput) perfLargeModeInput.checked = !!LARGE_MODE;
+    if (perfLargeThresholdInput) perfLargeThresholdInput.value = String(LARGE_THRESHOLD);
+    if (perfConcNormalInput) perfConcNormalInput.value = String(CONC_NORMAL);
+    if (perfConcLargeInput) perfConcLargeInput.value = String(CONC_LARGE);
+    if (perfBulkSilentInput) perfBulkSilentInput.checked = !!BULK_SILENT;
+    perfSaveBtn?.addEventListener('click', savePerfSettings);
+  } catch {}
   // 즐겨찾기 사이드바 초기 렌더 및 이벤트 바인딩
   try {
     favRender();
@@ -1359,8 +1411,8 @@ async function runAnalysisForIds(ids, opts = {}) {
     return !(pre && pre.transcript_unavailable === true);
   });
   // 동시 실행: 분석 API 요청 병렬화(기본 6, 최대 12)
-  // 대용량 모드에서는 동시성 약간 상향, 그렇지 않으면 6 유지
-  const conc = (opts && opts.large) ? 8 : 6;
+  // 대용량 모드에서는 동시성 상향(설정값 사용), 그렇지 않으면 기본값 사용
+  const conc = (opts && opts.large) ? CONC_LARGE : CONC_NORMAL;
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1446,8 +1498,10 @@ runAnalysisSelectedBtn?.addEventListener('click', async () => {
 runAnalysisAllBtn?.addEventListener('click', async () => {
         const ids = currentData.map(v => v.id);
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
-  const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
-  if (!ok) return;
+  if (!BULK_SILENT) {
+    const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
+    if (!ok) return;
+  }
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
   await runAnalysisForIds(ids, { large: useLarge });
     });
@@ -1711,7 +1765,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 조회수 갱신 시작');
-  const ids = currentData.map(v => v.id);
+        const ids = currentData.map(v => v.id);
   const onlyMissing = !!ytViewsOnlyMissing?.checked;
   const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
   const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
