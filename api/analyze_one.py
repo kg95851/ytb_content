@@ -449,7 +449,14 @@ def analyze_one():
         wanted = list(updated.keys()) if updated else []
         saved = list(payload.keys()) if updated else []
         skipped = [k for k in wanted if k not in (saved or [])]
-        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped })
+        # 디버깅: 실제 저장된 값 샘플 확인
+        sample_fields = {}
+        if updated:
+            for k in ['material', 'hooking', 'narrative_structure']:
+                v = updated.get(k)
+                if v:
+                    sample_fields[k] = str(v)[:100] + '...' if len(str(v)) > 100 else str(v)
+        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields })
     except Exception as e:
         app.logger.exception('analyze_one failed')
         return jsonify({ 'ok': False, 'error': str(e), 'stage': locals().get('stage', 'unknown'), 'trace': traceback.format_exc()[:2000] }), 500
