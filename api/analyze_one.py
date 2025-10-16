@@ -658,11 +658,30 @@ def health():
 @app.route('/api/analyze_one/debug', methods=['GET'])
 def debug():
     try:
+        # Count actual API keys
+        key_count = 0
+        
+        # Check comma-separated keys
+        multi_keys = os.getenv('GEMINI_API_KEYS')
+        if multi_keys:
+            key_count = len([k.strip() for k in multi_keys.split(',') if k.strip()])
+        
+        # Check numbered keys if no comma-separated found
+        if key_count == 0:
+            for i in range(1, 101):
+                if os.getenv(f'GEMINI_API_KEY{i}'):
+                    key_count += 1
+        
+        # Check single key as fallback
+        if key_count == 0 and os.getenv('GEMINI_API_KEY'):
+            key_count = 1
+            
         info = {
             'has_SUPABASE_URL': bool(os.getenv('SUPABASE_URL')),
             'has_SUPABASE_SERVICE_ROLE_KEY': bool(os.getenv('SUPABASE_SERVICE_ROLE_KEY')),
             'has_SUPABASE_ANON_KEY': bool(os.getenv('SUPABASE_ANON_KEY')),
             'has_GEMINI_API_KEY': bool(os.getenv('GEMINI_API_KEY')),
+            'gemini_key_count': key_count,
             'routes': ['/api/analyze_one', '/api/analyze_one/debug', '/api/health']
         }
         return jsonify({ 'ok': True, 'env': info })
