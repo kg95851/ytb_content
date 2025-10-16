@@ -1,2004 +1,628 @@
-import { supabase } from '../supabase-client.js';
-
-// DOM refs
-const loginView = document.getElementById('login-view');
-const adminPanel = document.getElementById('admin-panel');
-const logoutBtn = document.getElementById('logout-btn');
-const tabs = document.querySelector('.tabs');
-const tabLinks = document.querySelectorAll('.tab-link');
-const tabContents = document.querySelectorAll('.tab-content');
-
-// Data management
-const dataTableContainer = document.getElementById('data-table-container');
-const adminPaginationContainer = document.getElementById('admin-pagination-container');
-const dataSearchInput = document.getElementById('data-search-input');
-const adminUpdateDateFilter = document.getElementById('admin-update-date-filter');
-const adminSortSelect = document.getElementById('admin-sort-select');
-const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
-const runAnalysisSelectedBtn = document.getElementById('run-analysis-selected-btn');
-const runAnalysisAllBtn = document.getElementById('run-analysis-all-btn');
-const analysisStatus = document.getElementById('analysis-status');
-const youtubeStatus = document.getElementById('youtube-status');
-const commentCountInput = document.getElementById('comment-count-input');
-const runCommentsSelectedBtn = document.getElementById('run-comments-selected-btn');
-const ytTranscriptSelectedBtn = document.getElementById('yt-transcript-selected-btn');
-const ytViewsSelectedBtn = document.getElementById('yt-views-selected-btn');
-const resetTranscriptSelectedBtn = document.getElementById('reset-transcript-selected-btn');
-const ytTranscriptAllBtn = document.getElementById('yt-transcript-all-btn');
-const ytViewsAllBtn = document.getElementById('yt-views-all-btn');
-
-// Upload
-const fileDropArea = document.getElementById('file-drop-area');
-const fileInput = document.getElementById('file-input');
-const fileNameDisplay = document.getElementById('file-name-display');
-const uploadBtn = document.getElementById('upload-btn');
-const uploadStatus = document.getElementById('upload-status');
-
-// Settings (Gemini/transcript)
-const geminiKeyInput = document.getElementById('gemini-api-key');
-const saveGeminiKeyBtn = document.getElementById('save-gemini-key-btn');
-const testGeminiKeyBtn = document.getElementById('test-gemini-key-btn');
-const geminiKeyStatus = document.getElementById('gemini-key-status');
-const transcriptServerInput = document.getElementById('transcript-server-url');
-const saveTranscriptServerBtn = document.getElementById('save-transcript-server-btn');
-const transcriptServerStatus = document.getElementById('transcript-server-status');
-
-// Settings (YouTube keys)
-const ytKeysTextarea = document.getElementById('youtube-api-keys');
-const ytKeysSaveBtn = document.getElementById('save-youtube-keys-btn');
-const ytKeysTestBtn = document.getElementById('test-youtube-keys-btn');
-const ytKeysStatus = document.getElementById('youtube-keys-status');
-// Perf settings
-const perfLargeModeInput = document.getElementById('perf-large-mode');
-const perfLargeThresholdInput = document.getElementById('perf-large-threshold');
-const perfConcNormalInput = document.getElementById('perf-conc-normal');
-const perfConcLargeInput = document.getElementById('perf-conc-large');
-const perfBulkSilentInput = document.getElementById('perf-bulk-silent');
-const perfSaveBtn = document.getElementById('perf-save-btn');
-const perfSaveStatus = document.getElementById('perf-save-status');
-const perfSeqAnalysisInput = document.getElementById('perf-seq-analysis');
-
-// Schedule
-const scheduleCreateBtn = document.getElementById('schedule-create-btn');
-const scheduleRankingBtn = document.getElementById('schedule-ranking-btn');
-const rankingRefreshNowBtn = document.getElementById('ranking-refresh-now-btn');
-const scheduleCreateStatus = document.getElementById('schedule-create-status');
-const scheduleTimeInput = document.getElementById('schedule-time');
-const schedulesTableContainer = document.getElementById('schedules-table-container');
-const schedulesBulkDeleteBtn = document.getElementById('schedules-bulk-delete-btn');
-const scheduleLogEl = document.getElementById('schedule-log');
-
-// Analysis banner
-const analysisBanner = document.getElementById('analysis-banner');
-const analysisBannerText = document.getElementById('analysis-banner-text');
-const analysisProgressBar = document.getElementById('analysis-progress-bar');
-const analysisLogEl = document.getElementById('analysis-log');
-const stopCurrentBtn = document.getElementById('stop-current-btn');
-// topbar chip mirrors
-const chipRunSel = document.getElementById('chip-run-analysis-selected');
-const chipRunAll = document.getElementById('chip-run-analysis-all');
-const chipTrSel = document.getElementById('chip-transcript-selected');
-const chipVwSel = document.getElementById('chip-views-selected');
-const chipExport = document.getElementById('chip-export-json');
-
-// Favorites Sidebar
-const favGroupInput = document.getElementById('fav-group-input');
-const favAddBtn = document.getElementById('fav-add-btn');
-const favDeleteBtn = document.getElementById('fav-delete-btn');
-const favGroupList = document.getElementById('fav-group-list');
-
-// Export JSON
-const exportJsonBtn = document.getElementById('export-json-btn');
-const exportStatus = document.getElementById('export-status');
-// Concurrency inputs
-const ytTranscriptConcInput = document.getElementById('yt-transcript-conc');
-const ytViewsConcInput = document.getElementById('yt-views-conc');
-// Options
-const ytTranscriptOnlyMissing = document.getElementById('yt-transcript-only-missing');
-const ytViewsOnlyMissing = document.getElementById('yt-views-only-missing');
-const ytViewsExcludeMin = document.getElementById('yt-views-exclude-min');
-const youtubeLogEl = document.getElementById('youtube-log');
-
-function ylog(line) {
-  if (!youtubeLogEl) return;
-  const t = new Date().toLocaleTimeString();
-  youtubeLogEl.textContent += `[${t}] ${line}\n`;
-  youtubeLogEl.scrollTop = youtubeLogEl.scrollHeight;
-}
-
-let currentData = [];
-let adminCurrentPage = 1;
-const ADMIN_PAGE_SIZE = 200;
-let adminSortMode = 'update_desc';
-const ADMIN_VIEW_STATE_KEY = 'admin_view_state_v1';
-let selectedFile = null;
-let docIdToEdit = null;
-let isBulkDelete = false;
-let adminLastRows = [];
-// 대용량 모드: 기본 활성화. ids가 LARGE_THRESHOLD 이상이면 고성능 설정 적용
-let LARGE_MODE = true;
-let LARGE_THRESHOLD = 600;
-// 전체 작업 시 확인창 비활성화(자동 진행)
-let BULK_SILENT = true;
-let CONC_NORMAL = 6;
-let CONC_LARGE = 8;
-let SEQ_ANALYSIS = true; // 기본: 순차 실행
-
-function loadPerfSettings() {
-  try {
-    const raw = localStorage.getItem('perf_settings_v1');
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    if (typeof s.largeMode === 'boolean') LARGE_MODE = s.largeMode;
-    if (Number.isFinite(s.largeThreshold)) LARGE_THRESHOLD = s.largeThreshold;
-    if (typeof s.bulkSilent === 'boolean') BULK_SILENT = s.bulkSilent;
-    if (Number.isFinite(s.concNormal)) CONC_NORMAL = s.concNormal;
-    if (Number.isFinite(s.concLarge)) CONC_LARGE = s.concLarge;
-    if (typeof s.seqAnalysis === 'boolean') SEQ_ANALYSIS = s.seqAnalysis;
-  } catch {}
-}
-
-function savePerfSettings() {
-  try {
-    const s = {
-      largeMode: !!perfLargeModeInput?.checked,
-      largeThreshold: Math.max(1, Number(perfLargeThresholdInput?.value || LARGE_THRESHOLD)),
-      bulkSilent: !!perfBulkSilentInput?.checked,
-      concNormal: Math.max(1, Math.min(12, Number(perfConcNormalInput?.value || CONC_NORMAL))),
-      concLarge: Math.max(1, Math.min(12, Number(perfConcLargeInput?.value || CONC_LARGE))),
-      seqAnalysis: !!perfSeqAnalysisInput?.checked
-    };
-    localStorage.setItem('perf_settings_v1', JSON.stringify(s));
-    LARGE_MODE = s.largeMode; LARGE_THRESHOLD = s.largeThreshold; BULK_SILENT = s.bulkSilent; CONC_NORMAL = s.concNormal; CONC_LARGE = s.concLarge; SEQ_ANALYSIS = s.seqAnalysis;
-    if (perfSaveStatus) { perfSaveStatus.textContent = '저장되었습니다.'; perfSaveStatus.style.color = 'green'; }
-  } catch (e) {
-    if (perfSaveStatus) { perfSaveStatus.textContent = '저장 실패: ' + (e?.message || e); perfSaveStatus.style.color = 'red'; }
-  }
-}
-
-// --------- Favorites (localStorage) ---------
-const FAV_STORE_KEY = 'admin_favorites_groups_v1';
-function favLoad() {
-  try { return JSON.parse(localStorage.getItem(FAV_STORE_KEY) || '{}'); } catch { return {}; }
-}
-function favSave(obj) {
-  try { localStorage.setItem(FAV_STORE_KEY, JSON.stringify(obj)); } catch {}
-}
-function favRender() {
-  if (!favGroupList) return;
-  const fav = favLoad();
-  const groups = Object.keys(fav);
-  if (!groups.length) { favGroupList.innerHTML = '<p class="info-message">그룹을 추가하세요.</p>'; return; }
-  const html = groups.map(g => {
-    const ids = Array.isArray(fav[g]) ? fav[g] : [];
-    return `<div class="detail-item"><label class="option"><input type="checkbox" class="fav-group-checkbox" data-group="${escapeHtml(g)}"> ${escapeHtml(g)} <span style="color:#6b7280; font-size:12px;">(${ids.length})</span></label></div>`;
-  }).join('');
-  favGroupList.innerHTML = html;
-}
-function favAddGroup(name) {
-  const n = String(name || '').trim(); if (!n) return;
-  const fav = favLoad(); if (!fav[n]) fav[n] = [];
-  favSave(fav); favRender();
-}
-function favDeleteSelected() {
-  const fav = favLoad();
-  const boxes = Array.from(document.querySelectorAll('.fav-group-checkbox:checked'));
-  if (!boxes.length) return;
-  boxes.forEach(b => { const g = b.getAttribute('data-group'); delete fav[g]; });
-  favSave(fav); favRender();
-}
-function favToggle(group, id) {
-  const g = String(group || '').trim(); const vid = String(id || '').trim();
-  if (!g || !vid) return;
-  const fav = favLoad(); if (!fav[g]) fav[g] = [];
-  const arr = fav[g];
-  const idx = arr.indexOf(vid);
-  if (idx >= 0) arr.splice(idx, 1); else arr.push(vid);
-  favSave(fav);
-}
-
-function favIsInAny(id) {
-  const vid = String(id || '').trim(); if (!vid) return false;
-  const fav = favLoad();
-  for (const [_, arr] of Object.entries(fav)) {
-    if (Array.isArray(arr) && arr.includes(vid)) return true;
-  }
-  return false;
-}
-
-function favRefreshStarStates() {
-  try {
-    document.querySelectorAll('.btn-fav-toggle').forEach(btn => {
-      const row = btn.closest('tr[data-id]');
-      const vid = row?.getAttribute('data-id');
-      const active = favIsInAny(vid);
-      btn.classList.toggle('active', !!active);
-      btn.textContent = active ? '★' : '☆';
-    });
-  } catch {}
-}
-
-function favSelectedGroups() {
-  return Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group')).filter(Boolean);
-}
-
-function favIdsForGroups(groups) {
-  const fav = favLoad();
-  const set = new Set();
-  groups.forEach(g => {
-    const arr = fav[g] || [];
-    (arr || []).forEach(id => set.add(String(id)));
-  });
-  return set;
-}
-
-function getRowsForRender() {
-  const query = String(dataSearchInput?.value || '').toLowerCase();
-  const upd = String(adminUpdateDateFilter?.value || '');
-  let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData.slice();
-  if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
-  const groups = favSelectedGroups();
-  if (groups.length) {
-    const idSet = favIdsForGroups(groups);
-    rows = rows.filter(v => idSet.has(String(v.id)));
-  }
-  return rows;
-}
-
-// --------- Admin cache (ETag-like) ---------
-const ADMIN_IDB_DB = 'adminVideosCacheDB';
-const ADMIN_IDB_STORE = 'kv';
-const ADMIN_CACHE_KEY = 'videosCompressed';
-
-async function adminIdbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(ADMIN_IDB_DB, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(ADMIN_IDB_STORE)) db.createObjectStore(ADMIN_IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function adminIdbGet(key) {
-  try {
-    const db = await adminIdbOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(ADMIN_IDB_STORE, 'readonly');
-      const store = tx.objectStore(ADMIN_IDB_STORE);
-      const r = store.get(key);
-      r.onsuccess = () => resolve(r.result || null);
-      r.onerror = () => reject(r.error);
-    });
-  } catch { return null; }
-}
-
-async function adminIdbSet(key, value) {
-  try {
-    const db = await adminIdbOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(ADMIN_IDB_STORE, 'readwrite');
-      const store = tx.objectStore(ADMIN_IDB_STORE);
-      const r = store.put(value, key);
-      r.onsuccess = () => resolve(true);
-      r.onerror = () => reject(r.error);
-    });
-  } catch { return false; }
-}
-
-async function adminCompressJSON(data) {
-  const text = JSON.stringify(data);
-  if ('CompressionStream' in window) {
-    const cs = new CompressionStream('gzip');
-    const blob = new Blob([text]);
-    const stream = blob.stream().pipeThrough(cs);
-    const buffer = await new Response(stream).arrayBuffer();
-    return { algo: 'gzip', buffer };
-  }
-  return { algo: 'none', text };
-}
-
-async function adminDecompressJSON(record) {
-  if (!record) return null;
-  if (record.algo === 'gzip' && 'DecompressionStream' in window) {
-    const ds = new DecompressionStream('gzip');
-    const stream = new Blob([record.buffer]).stream().pipeThrough(ds);
-    const text = await new Response(stream).text();
-    return JSON.parse(text);
-  }
-  if (record.text) return JSON.parse(record.text);
-  return null;
-}
-
-async function getAdminCache() {
-  const rec = await adminIdbGet(ADMIN_CACHE_KEY);
-  if (!rec) return null;
-  try {
-    const payload = await adminDecompressJSON(rec.payload);
-    return { version: rec.version, data: payload };
-  } catch { return null; }
-}
-
-async function setAdminCache(version, data) {
-  const payload = await adminCompressJSON(data);
-  await adminIdbSet(ADMIN_CACHE_KEY, { version, payload, savedAt: Date.now() });
-}
-
-function computeVersionFromData(rows) {
-  const total = Array.isArray(rows) ? rows.length : 0;
-  const maxTs = Math.max(...(rows || []).map(r => Number(r.last_modified || 0)).filter(Boolean), 0);
-  return `${total}:${maxTs}`;
-}
-
-async function fetchDatasetVersion() {
-  let total = 0; let newest = 0;
-  try {
-    const { count } = await supabase.from('videos').select('id', { count: 'exact', head: true });
-    if (typeof count === 'number') total = count;
-  } catch {}
-  try {
-    const { data } = await supabase.from('videos').select('last_modified').order('last_modified', { ascending: false }).limit(1);
-    if (Array.isArray(data) && data[0]?.last_modified) newest = Number(data[0].last_modified) || 0;
-  } catch {}
-  return { total, newest, tag: `${total}:${newest}` };
-}
-
-// ---------- Auth (Supabase) ----------
-const loginDebug = document.getElementById('login-debug');
-
-async function refreshAuthUI() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) {
-        loginView.classList.add('hidden');
-        adminPanel.classList.remove('hidden');
-        fetchAndDisplayData();
-    refreshSchedulesUI();
-    } else {
-        loginView.classList.remove('hidden');
-        adminPanel.classList.add('hidden');
-    }
-}
-
-document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
-  geminiKeyStatus && (geminiKeyStatus.textContent = '');
-  try {
-    if (loginDebug) { loginDebug.style.display='block'; loginDebug.textContent = '';
-      try {
-        let hasUrl = false; let hasAnon = false;
-        try { hasUrl = !!(import.meta && import.meta.env && import.meta.env.VITE_SUPABASE_URL); } catch {}
-        try { hasAnon = !!(import.meta && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY); } catch {}
-        loginDebug.textContent += `[client] URL: ${hasUrl ? 'OK' : 'MISSING'}\n`;
-        loginDebug.textContent += `[client] ANON: ${hasAnon ? 'OK' : 'MISSING'}\n`;
-      } catch {}
-      try { const probe = await supabase.auth.getSession(); loginDebug.textContent += `[probe] session: ${probe?.data?.session ? 'present' : 'none'}\n`; } catch {}
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    if (loginDebug) loginDebug.textContent += `[signin] user: ${data?.user?.id || 'none'}\n`;
-    // 세션 전파 폴링(100~300ms 대기, 최대 3회)
-    for (let i = 0; i < 3; i++) {
-      await new Promise(r => setTimeout(r, 120));
-      try {
-        const probe2 = await supabase.auth.getSession();
-        if (loginDebug) loginDebug.textContent += `[probe${i+1}] session: ${probe2?.data?.session ? 'present' : 'none'}\n`;
-        if (probe2?.data?.session) break;
-      } catch {}
-    }
-  } catch (err) {
-    const msg = (err?.message || err || '').toString();
-    document.getElementById('login-error').textContent = '로그인 실패: ' + msg;
-    if (loginDebug) loginDebug.textContent += `[error] ${msg}\n`;
-  }
-  await refreshAuthUI();
-});
-
-logoutBtn.addEventListener('click', async () => {
-  await supabase.auth.signOut();
-  await refreshAuthUI();
-});
-
-supabase.auth.onAuthStateChange((e, s) => {
-  const d = document.getElementById('login-debug');
-  if (d) { d.style.display = 'block'; d.textContent += `[auth] ${e} session=${!!s?.session}\n`; }
-  refreshAuthUI();
-});
-window.addEventListener('DOMContentLoaded', () => {
-  // 기본 예약 시간: +30분
-  if (scheduleTimeInput) {
-    const now = new Date(); now.setMinutes(now.getMinutes() + 30);
-    scheduleTimeInput.value = formatDateTimeLocal(now);
-  }
-  restoreLocalSettings();
-  // 성능 설정 초기화
-  loadPerfSettings();
-  try {
-    if (perfLargeModeInput) perfLargeModeInput.checked = !!LARGE_MODE;
-    if (perfLargeThresholdInput) perfLargeThresholdInput.value = String(LARGE_THRESHOLD);
-    if (perfConcNormalInput) perfConcNormalInput.value = String(CONC_NORMAL);
-    if (perfConcLargeInput) perfConcLargeInput.value = String(CONC_LARGE);
-    if (perfBulkSilentInput) perfBulkSilentInput.checked = !!BULK_SILENT;
-    if (perfSeqAnalysisInput) perfSeqAnalysisInput.checked = !!SEQ_ANALYSIS;
-    perfSaveBtn?.addEventListener('click', savePerfSettings);
-  } catch {}
-  // 즐겨찾기 사이드바 초기 렌더 및 이벤트 바인딩
-  try {
-    favRender();
-    favAddBtn?.addEventListener('click', () => { favAddGroup(favGroupInput?.value || ''); favGroupInput && (favGroupInput.value = ''); });
-    favDeleteBtn?.addEventListener('click', () => { favDeleteSelected(); favRefreshStarStates(); });
-    favGroupList?.addEventListener('click', (e) => {
-      const cb = e.target.closest('.fav-group-checkbox');
-      if (!cb) return;
-      // 단일 선택 토글(Shift로 다중 선택 허용)
-      if (!e.shiftKey) {
-        document.querySelectorAll('.fav-group-checkbox').forEach(x => { if (x !== cb) x.checked = false; });
-      }
-      // 그룹 선택 변경 시 현재 테이블의 별 상태 갱신
-      favRefreshStarStates();
-    });
-  } catch {}
-  // 이전 보기 상태 복원
-  const st = loadAdminViewState();
-  if (st) {
-    try { if (dataSearchInput) dataSearchInput.value = st.search || ''; } catch {}
-    try { if (adminUpdateDateFilter) adminUpdateDateFilter.value = st.updateDate || ''; } catch {}
-    try { adminSortMode = st.sort || 'update_desc'; } catch {}
-    try { adminCurrentPage = Math.max(1, Number(st.page || 1)); } catch {}
-  }
-  refreshAuthUI();
-});
-
-// ---------- Tabs ----------
-tabs.addEventListener('click', (e) => {
-  if (!e.target.classList.contains('tab-link')) return;
-        const tabId = e.target.getAttribute('data-tab');
-  tabLinks.forEach(l => l.classList.remove('active'));
-  tabContents.forEach(c => c.classList.remove('active'));
-        e.target.classList.add('active');
-        document.getElementById(tabId).classList.add('active');
-});
-
-// ---------- CRUD: Read/Render ----------
-async function fetchAndDisplayData() {
-  dataTableContainer.innerHTML = '<p class="info-message">데이터 로딩...</p>';
-  try {
-    // 0) 캐시 버전 확인 및 조건부 로딩
-    const remoteVer = await fetchDatasetVersion();
-    const cached = await getAdminCache();
-    if (cached && cached.version === remoteVer.tag) {
-      currentData = cached.data || [];
-      adminCurrentPage = 1;
-      renderTable(getRowsForRender());
-      renderAdminPagination();
-      return;
-    }
-
-    // 전체 카운트
-    let total = remoteVer.total || 0;
-
-    const BATCH = 1000;
-    const CONC = 4;
-    const ranges = [];
-    if (total > 0) {
-      for (let start = 0; start < total; start += BATCH) {
-        ranges.push([start, Math.min(start + BATCH - 1, total - 1)]);
-      }
-    } else {
-      // 총 개수를 못 가져오면 until-exhaust 페치
-      ranges.push([0, BATCH - 1]);
-    }
-
-    const results = [];
-    for (let i = 0; i < ranges.length; i += CONC) {
-      const slice = ranges.slice(i, i + CONC);
-      const chunk = await Promise.all(slice.map(async ([from, to]) => {
-        const { data, error } = await supabase
-          .from('videos')
-          .select('*')
-          .order('date', { ascending: false })
-          .range(from, to);
-        if (error) return [];
-        return Array.isArray(data) ? data : [];
-      }));
-      chunk.forEach(arr => results.push(...arr));
-      // until-exhaust: 총 개수 미확정이면서 마지막 청크가 꽉 찼으면 다음 범위를 추가
-      if (!total && slice.length && (chunk[chunk.length - 1]?.length === BATCH)) {
-        const lastEnd = ranges[ranges.length - 1][1];
-        ranges.push([lastEnd + 1, lastEnd + BATCH]);
-      }
-    }
-
-    // 중복 제거
-    const map = new Map();
-    for (const r of results) { if (r && r.id) map.set(r.id, r); }
-    currentData = Array.from(map.values());
-    // 캐시 저장: 총개수/최신 last_modified 기반 버전
-    const version = remoteVer.tag || computeVersionFromData(currentData);
-    await setAdminCache(version, currentData);
-    adminCurrentPage = 1;
-    renderTable(getRowsForRender());
-    renderAdminPagination();
-  } catch (e) {
-    console.error('fetch error', e);
-    dataTableContainer.innerHTML = '<p class="error-message">불러오기 실패</p>';
-  }
-}
-
-function renderTable(rows) {
-  if (!rows?.length) {
-        dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
-        return;
-    }
-  // 정렬 적용
-  let sorted = rows.slice();
-  const getUpdateTs = (v) => { try { return v.update_date ? new Date(v.update_date).getTime() : 0; } catch { return 0; } };
-  if (adminSortMode === 'update_desc') sorted.sort((a,b) => getUpdateTs(b) - getUpdateTs(a));
-  else if (adminSortMode === 'date_desc') sorted.sort((a,b) => {
-    const da = a.date ? new Date(a.date).getTime() : 0; const db = b.date ? new Date(b.date).getTime() : 0; return db - da;
-  });
-  else if (adminSortMode === 'title_asc') sorted.sort((a,b) => String(a.title||'').localeCompare(String(b.title||'')));
-  else if (adminSortMode === 'channel_asc') sorted.sort((a,b) => String(a.channel||'').localeCompare(String(b.channel||'')));
-  // 즐겨찾기 그룹이 선택되어 있으면 해당 영상들을 최상단으로 승격
-  const picked = favSelectedGroups();
-  if (picked.length) {
-    const idSet = favIdsForGroups(picked);
-    sorted.sort((a,b) => {
-      const A = idSet.has(String(a.id)) ? 1 : 0;
-      const B = idSet.has(String(b.id)) ? 1 : 0;
-      if (A !== B) return B - A; // 즐겨찾기(true=1)가 더 앞으로
-      return 0;
-    });
-    }
-    const table = document.createElement('table');
-    table.className = 'data-table';
-  // 페이지 슬라이스
-  const startIndex = (adminCurrentPage - 1) * ADMIN_PAGE_SIZE;
-  const endIndex = startIndex + ADMIN_PAGE_SIZE;
-  const pageRows = sorted.slice(startIndex, endIndex);
-
-    table.innerHTML = `
-        <thead>
-            <tr>
-        <th><input type="checkbox" id="select-all-checkbox" /></th>
-        <th></th><th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
-            </tr>
-        </thead>
-        <tbody>
-      ${pageRows.map(v => `
-        <tr data-id="${v.id}">
-          <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
-          <td class="fav-cell" data-id="${v.id}"><button class="btn btn-icon btn-fav-toggle" title="즐겨찾기">⭐</button></td>
-          <td>${v.thumbnail ? `<img class="table-thumbnail" src="${v.thumbnail}">` : ''}</td>
-          <td class="table-title">${escapeHtml(v.title || '')}</td>
-          <td>${escapeHtml(v.channel || '')}</td>
-          <td>${escapeHtml(v.date || '')}</td>
-          <td>${escapeHtml(v.update_date || '')}</td>
-          <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; const hasT = !!(v.transcript_text && String(v.transcript_text).trim().length > 0); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; if (hasT) return '<span class="group-tag" style="background:#3b82f6;">대본있음</span>'; return ''; })()}</td>
-                    <td class="action-buttons">
-            <button class="btn btn-edit" data-id="${v.id}">수정</button>
-            <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
-                    </td>
-                </tr>
-            `).join('')}
-    </tbody>`;
-    dataTableContainer.innerHTML = '';
-    dataTableContainer.appendChild(table);
-  const selectAll = document.getElementById('select-all-checkbox');
-  if (selectAll) selectAll.addEventListener('change', (e) => {
-    document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = e.target.checked; });
-  });
-  // 즐겨찾기 토글
-  table.addEventListener('click', (e) => {
-    const btn = e.target.closest('.btn-fav-toggle');
-    if (!btn) return;
-    const row = btn.closest('tr[data-id]');
-    const vid = row?.getAttribute('data-id');
-    const picked = Array.from(document.querySelectorAll('.fav-group-checkbox:checked')).map(b => b.getAttribute('data-group'));
-    if (!picked.length) { alert('왼쪽 즐겨찾기에서 그룹을 선택하세요.'); return; }
-    picked.forEach(g => favToggle(g, vid));
-    // 실시간 재정렬+렌더: 즐겨찾기 영상은 최상단으로 이동
-    const rowsNow = getRowsForRender();
-    renderTable(rowsNow);
-    renderAdminPagination();
-  });
-}
-
-function renderAdminPagination() {
-  if (!adminPaginationContainer) return;
-  const totalPages = Math.max(1, Math.ceil(currentData.length / ADMIN_PAGE_SIZE));
-  if (totalPages <= 1) { adminPaginationContainer.innerHTML = ''; return; }
-  const makeBtn = (p) => `<button class="page-btn ${p===adminCurrentPage?'active':''}" data-admin-page="${p}">${p}</button>`;
-  const maxShow = 9;
-  let start = Math.max(1, adminCurrentPage - Math.floor(maxShow/2));
-  let end = Math.min(totalPages, start + maxShow - 1);
-  if (end - start + 1 < maxShow) start = Math.max(1, end - maxShow + 1);
-  const parts = [];
-  if (adminCurrentPage > 1) parts.push(`<button class="page-btn" data-admin-page="${adminCurrentPage-1}">이전</button>`);
-  if (start > 1) parts.push(makeBtn(1));
-  if (start > 2) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
-  for (let p = start; p <= end; p++) parts.push(makeBtn(p));
-  if (end < totalPages - 1) parts.push('<span style="color:var(--text-secondary);padding:4px 6px;">...</span>');
-  if (end < totalPages) parts.push(makeBtn(totalPages));
-  if (adminCurrentPage < totalPages) parts.push(`<button class="page-btn" data-admin-page="${adminCurrentPage+1}">다음</button>`);
-  adminPaginationContainer.innerHTML = parts.join('');
-}
-
-function saveAdminViewState() {
-  try {
-    const st = {
-      search: String(dataSearchInput?.value || ''),
-      updateDate: String((typeof adminUpdateDateFilter !== 'undefined' && adminUpdateDateFilter && adminUpdateDateFilter.value) ? adminUpdateDateFilter.value : ''),
-      sort: adminSortMode,
-      page: adminCurrentPage
-    };
-    sessionStorage.setItem(ADMIN_VIEW_STATE_KEY, JSON.stringify(st));
-  } catch {}
-}
-
-function loadAdminViewState() {
-  try {
-    const raw = sessionStorage.getItem(ADMIN_VIEW_STATE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch { return null; }
-}
-
-// 가벼운 행 갱신: 특정 id만 다시 읽어 currentData에 머지 후 현재 페이지/검색 상태 유지 렌더
-async function refreshRowsByIds(ids) {
-  try {
-    if (!Array.isArray(ids) || !ids.length) return;
-    const { data, error } = await supabase.from('videos').select('*').in('id', ids);
-    if (error) return;
-    const map = new Map(currentData.map(v => [v.id, v]));
-    for (const r of (data || [])) { if (r && r.id) map.set(r.id, r); }
-    currentData = Array.from(map.values());
-    // 현재 검색어 유지
-    const query = String(dataSearchInput?.value || '').toLowerCase();
-    const upd = String(adminUpdateDateFilter?.value || '');
-    let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData;
-    if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
-    renderTable(rows);
-    renderAdminPagination();
-  } catch {}
-}
-
-dataTableContainer.addEventListener('click', (e) => {
-  const btnEdit = e.target.closest('.btn-edit');
-  const btnDel = e.target.closest('.single-delete-btn');
-  if (btnEdit) openEditModal(btnEdit.getAttribute('data-id'));
-  if (btnDel) openConfirmModal(btnDel.getAttribute('data-id'), false);
-  // 행 어디나 클릭해도 체크박스 토글 (버튼/링크/체크박스 자체는 제외)
-  const row = e.target.closest('tr[data-id]');
-  if (!row) return;
-  if (e.target.closest('.action-buttons')) return;
-  if (e.target.closest('button,a,input[type="checkbox"]')) return;
-  const cb = row.querySelector('.row-checkbox');
-  if (cb) cb.checked = !cb.checked;
-});
-
-// 페이지네이션 버튼 클릭
-document.addEventListener('click', (e) => {
-  const pageBtn = e.target.closest('.page-btn');
-  if (!pageBtn) return;
-  const p = Number(pageBtn.getAttribute('data-admin-page'));
-  if (!isFinite(p)) return;
-  adminCurrentPage = p;
-  renderTable(getRowsForRender());
-  renderAdminPagination();
-  saveAdminViewState();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-});
-
-dataSearchInput?.addEventListener('input', (e) => {
-  adminCurrentPage = 1;
-  renderTable(getRowsForRender());
-  renderAdminPagination();
-});
-adminUpdateDateFilter?.addEventListener('change', () => {
-  adminCurrentPage = 1;
-  renderTable(getRowsForRender());
-  renderAdminPagination();
-  saveAdminViewState();
-});
-
-adminSortSelect?.addEventListener('change', () => {
-  adminSortMode = adminSortSelect.value || 'update_desc';
-  adminCurrentPage = 1;
-  renderTable(getRowsForRender());
-  renderAdminPagination();
-  saveAdminViewState();
-});
-
-// ---------- CRUD: Edit ----------
-const editModal = document.getElementById('edit-modal');
-const editForm = document.getElementById('edit-form');
-const saveEditBtn = document.getElementById('save-edit-btn');
-const cancelEditBtn = document.getElementById('cancel-edit-btn');
-const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
-
-async function openEditModal(id) {
-    docIdToEdit = id;
-  const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
-  if (error || !data) return;
-  const obj = data;
-        editForm.innerHTML = '';
-  Object.keys(obj).sort().forEach((key) => {
-    const raw = obj[key];
-            const isObject = raw && typeof raw === 'object';
-            const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
-            const isLong = String(value).length > 100 || isObject;
-            editForm.innerHTML += `
-                <div class="form-group">
-        <label for="edit-${key}">${escapeHtml(key)}</label>
-                    ${isLong
-          ? `<textarea id="edit-${key}" name="${escapeHtml(key)}" style="min-height:120px;">${escapeHtml(String(value))}</textarea>`
-          : `<input type="text" id="edit-${key}" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}">`}
-      </div>`;
-        });
-        editModal.classList.remove('hidden');
-    }
-
-function closeEditModal() { editModal.classList.add('hidden'); }
-cancelEditBtn.addEventListener('click', closeEditModal);
-closeEditModalBtn.addEventListener('click', closeEditModal);
-
-saveEditBtn.addEventListener('click', async () => {
-  const updated = {};
-    new FormData(editForm).forEach((value, key) => {
-    try { updated[key] = (/^\s*\[|\{/.test(String(value))) ? JSON.parse(value) : value; }
-    catch { updated[key] = value; }
-  });
-  await supabase.from('videos').update(updated).eq('id', docIdToEdit);
-    closeEditModal();
-    fetchAndDisplayData();
-});
-
-// ---------- CRUD: Delete ----------
-const confirmModal = document.getElementById('confirm-modal');
-const confirmModalTitle = document.getElementById('confirm-modal-title');
-const confirmModalMessage = document.getElementById('confirm-modal-message');
-const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
-const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
-
-function openConfirmModal(id, bulk) {
-  isBulkDelete = !!bulk;
-  if (isBulkDelete) {
-        confirmModalTitle.textContent = '선택 삭제 확인';
-    confirmModalMessage.textContent = '선택된 항목들을 삭제하시겠습니까?';
-    } else {
-    docIdToEdit = id;
-        confirmModalTitle.textContent = '삭제 확인';
-        confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
-    }
-    confirmModal.classList.remove('hidden');
-}
-function closeConfirmModal() { confirmModal.classList.add('hidden'); }
-cancelDeleteBtn.addEventListener('click', closeConfirmModal);
-
-confirmDeleteBtn.addEventListener('click', async () => {
-    if (isBulkDelete) {
-    const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-    if (ids.length) await supabase.from('videos').delete().in('id', ids);
-    } else {
-    await supabase.from('videos').delete().eq('id', docIdToEdit);
-    }
-    closeConfirmModal();
-    fetchAndDisplayData();
-});
-
-bulkDeleteBtn.addEventListener('click', () => {
-  const anyChecked = document.querySelector('.row-checkbox:checked');
-  if (!anyChecked) { alert('삭제할 항목을 선택하세요.'); return; }
-        openConfirmModal(null, true);
-});
-
-// ---------- Upload ----------
-function handleFile(file) {
-  if (!file) return;
-  const ext = (file.name.split('.').pop() || '').toLowerCase();
-  if (!['csv', 'xlsx'].includes(ext)) {
-    alert('CSV 또는 XLSX 파일만 지원됩니다.');
-    return;
-  }
-  selectedFile = file;
-  fileNameDisplay.textContent = `선택된 파일: ${file.name}`;
-  fileNameDisplay.classList.add('active');
-}
-
-fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => fileDropArea.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); }));
-['dragenter', 'dragover'].forEach(evt => fileDropArea.addEventListener(evt, () => fileDropArea.classList.add('dragover')));
-['dragleave', 'drop'].forEach(evt => fileDropArea.addEventListener(evt, () => fileDropArea.classList.remove('dragover')));
-fileDropArea.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
-
-uploadBtn.addEventListener('click', () => {
-  if (!selectedFile) { uploadStatus.textContent = '파일을 선택하세요.'; uploadStatus.style.color = 'red'; return; }
-  uploadStatus.textContent = '파일 처리 중...'; uploadStatus.style.color = '';
-  const ext = (selectedFile.name.split('.').pop() || '').toLowerCase();
-  if (ext === 'csv') {
-    Papa.parse(selectedFile, { header: true, skipEmptyLines: true, complete: (res) => processDataAndUpload(res.data), error: (err) => { uploadStatus.textContent = 'CSV 파싱 오류: ' + err.message; uploadStatus.style.color='red'; } });
-    } else {
-    const reader = new FileReader(); reader.onload = (e) => {
-      try { const wb = XLSX.read(e.target.result, { type: 'array' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); processDataAndUpload(rows); }
-      catch (err) { uploadStatus.textContent = 'XLSX 파싱 오류: ' + (err?.message || err); uploadStatus.style.color='red'; }
-    }; reader.readAsArrayBuffer(selectedFile);
-  }
-});
-
-async function processDataAndUpload(data) {
-  uploadStatus.textContent = '변경사항 분석 중...';
-  // update_date 컬럼 존재 여부 확인(없으면 payload에서 제외)
-  let canWriteUpdateDate = false;
-  try {
-    const probe = await supabase.from('videos').select('update_date').limit(0);
-    canWriteUpdateDate = !probe.error;
-  } catch { canWriteUpdateDate = false; }
-
-  // 1) 입력 정규화
-  const isEmptyStringValue = (v) => {
-    if (v == null) return true;
-    const s = String(v).trim().toLowerCase();
-    return s === '' || s === '-' || s === 'n/a' || s === 'na' || s === 'null' || s === 'undefined' || s === '이미지 없음';
-  };
-  const isEmptyNumericValue = (v) => {
-    if (v == null) return true;
-    const s = String(v).trim().toLowerCase();
-    if (s === '' || s === 'null' || s === 'undefined' || s === 'nan') return true;
-    const digits = s.replace(/[^0-9]/g, '');
-    return digits === '' || digits === '0';
-  };
-
-  let incoming = [];
-  for (const row of data) {
-    if (!row || typeof row !== 'object') continue;
-    const normMap = new Map();
-    Object.keys(row).forEach((k) => { normMap.set(String(k).trim().toLowerCase().replace(/[\s_-]+/g,'')); });
-    const getCell = (variants, raw=false) => {
-      for (const v of variants) {
-        const keyNorm = String(v).trim().toLowerCase().replace(/[\s_-]+/g,'');
-        // exact or normalized match
-        for (const origKey of Object.keys(row)) {
-          const ok = String(origKey).trim().toLowerCase().replace(/[\s_-]+/g,'');
-          if (ok === keyNorm) {
-            const val = row[origKey];
-            return raw ? val : (val == null ? '' : String(val).trim());
-          }
+import json
+import os
+import traceback
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from flask import Flask, request, jsonify
+
+try:
+    # Reuse logic from cron_analyze
+    from cron_analyze import _load_sb, _analyze_video
+except Exception:
+    _load_sb = None
+    _analyze_video = None
+
+# --- Fallback implementations if import fails ---
+if _load_sb is None or _analyze_video is None:
+    try:
+        from supabase import create_client
+    except Exception:
+        create_client = None
+
+    import requests
+    
+    # Global key rotation state
+    _gemini_key_index = 0
+
+    def _load_sb():  # type: ignore
+        if create_client is None:
+            raise RuntimeError('supabase client not available')
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_ANON_KEY')
+        if not url or not key:
+            raise RuntimeError('Missing SUPABASE_URL or SUPABASE_*_KEY env')
+        return create_client(url, key)
+    
+    def _get_next_gemini_key():
+        global _gemini_key_index
+        # Get multiple keys from environment
+        keys = []
+        
+        # Try comma-separated first (GEMINI_API_KEYS="key1,key2,key3")
+        multi_keys = os.getenv('GEMINI_API_KEYS')
+        if multi_keys:
+            keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
+        
+        # Also try numbered keys (GEMINI_API_KEY1, GEMINI_API_KEY2, etc.)
+        if not keys:
+            for i in range(1, 101):
+                key = os.getenv(f'GEMINI_API_KEY{i}')
+                if key:
+                    keys.append(key)
+        
+        # Fall back to single key
+        if not keys:
+            single_key = os.getenv('GEMINI_API_KEY')
+            if single_key:
+                keys = [single_key]
+        
+        if not keys:
+            raise RuntimeError('No GEMINI_API_KEY found')
+        
+        # Rotate through keys
+        key = keys[_gemini_key_index % len(keys)]
+        _gemini_key_index += 1
+        print(f"Using Gemini key #{(_gemini_key_index % len(keys)) + 1} of {len(keys)}")
+        return key, len(keys)
+
+    def _call_gemini(system_prompt: str, user_content: str) -> str:
+        import time
+        prefer = os.getenv('GEMINI_MODEL')
+        candidates = [
+            *( [prefer] if prefer else [] ),
+            'models/gemini-2.5-flash',
+            'models/gemini-2.0-flash-exp',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-pro-latest',
+        ]
+        payload = {
+            'contents': [
+                { 'role': 'user', 'parts': [{ 'text': f"{system_prompt}\n\n{user_content}" }] }
+            ],
+            'generationConfig': { 'temperature': 0.3 }
         }
-      }
-      return raw ? undefined : '';
-    };
+        base = 'https://generativelanguage.googleapis.com'
+        all_errors = []
+        
+        # Try with multiple keys (up to 3 attempts with different keys)
+        max_key_attempts = 3
+        for key_attempt in range(max_key_attempts):
+            try:
+                api_key, total_keys = _get_next_gemini_key()
+            except Exception as e:
+                # If no keys available, use the error from key getter
+                raise RuntimeError(str(e))
+            
+            errors = []
+            
+            # Adaptive delay based on key rotation
+            if key_attempt > 0:
+                time.sleep(5)  # Wait 5 seconds before trying next key
+            else:
+                time.sleep(0.5)  # Small initial delay
+            
+            for api_ver in ('v1', 'v1beta'):
+                for model in candidates:
+                    if not model:
+                        continue
+                    url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
+                    try:
+                        res = requests.post(url, json=payload, timeout=240)
+                        if res.status_code == 429:
+                            # Rate limited - try next key
+                            errors.append(f"{api_ver}/{model}:429-key{key_attempt+1}/{total_keys}")
+                            break  # Break inner loop to try next key
+                        if res.status_code == 404:
+                            errors.append(f"{api_ver}/{model}:404")
+                            continue
+                        res.raise_for_status()
+                        data = res.json()
+                        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                        if text:
+                            return text
+                    except Exception as e:
+                        error_str = str(e)[:80]
+                        errors.append(f"{api_ver}/{model}:{error_str}")
+                        if '429' in error_str or 'Too Many Requests' in error_str:
+                            # Rate limited - try next key
+                            break
+                        continue
+                
+                # If we got rate limited with this key, break to try next key
+                if any('429' in e for e in errors):
+                    break
+            
+            all_errors.extend(errors)
+            
+            # If we didn't get rate limited, no point trying more keys
+            if not any('429' in e for e in errors):
+                break
+        
+        raise RuntimeError('Gemini request failed: ' + '; '.join(all_errors))
 
-    const url = getCell(['YouTube URL','YouTube Url','youtube_url','youtube url','유튜브URL','url','링크']);
-    const hashExplicit = getCell(['hash','Hash']);
-    const title = getCell(['title','Title','제목']);
-    const thumb = getCell(['thumbnail','Thumbnail','썸네일','썸네일주소','썸네일url','thumbnail url','thumb','image','image_url','이미지','이미지url']);
-    const views = getCell(['views','Views','조회수','viewCount','view count']);
-    const views_numeric_raw = getCell(['views_numeric','Views_numeric','조회수_numeric','조회수(숫자)','조회수수치'], true);
-    const channel = getCell(['channel','Channel','채널']);
-    const date = normalizeDate(getCell(['date','Date','게시일','publishedAt','publish_date']));
-    const subs = getCell(['subscribers','Subscribers','구독자','subs']);
-    const subs_numeric_raw = getCell(['subscribers_numeric','Subscribers_numeric','구독자_numeric','구독자(숫자)'], true);
-    const update_date_raw = getCell(['update_date','Update_date','update date','Update Date','업데이트날짜','업데이트 일자','업데이트일','업데이트']);
-    const group_name = getCell(['group_name','Group','그룹']);
-    const template_type = getCell(['template_type','템플릿 유형','템플릿','template']);
+    def _persona() -> str:
+        return (
+            "너는 이제 내 유튜브 채널의 서브작가야. 내가 만든 유튜브 쇼츠 영상 중 100만 조회수 이상 영상만 추려내서 "
+            "분석하려고 해. 내 고조회수 영상 대본을 꼼꼼하게 분석해서 내 채널의 정체성을 파악하고 결을 잡아갈 거야. "
+            "항상 '고조회수 성공 패턴'의 관점에서 요약과 분류를 해줘."
+        )
 
-    // 최소 식별 정보 없는 행 스킵
-    const hasAny = !!(hashExplicit || url || title);
-    if (!hasAny) continue;
+    def _build_material_prompt() -> str:
+        return (
+            _persona() + '\n\n'
+            '아래 대본을 읽고 반드시 JSON만 출력하세요. 다른 텍스트/머리말/코드펜스 금지.\n'
+            '{\n'
+            '  "main_idea": "영상이 전달하려는 핵심 메시지를 1문장",\n'
+            '  "core_materials": ["핵심 소재를 3~7개, 간결한 명사구"],\n'
+            '  "lang_patterns": ["반복되는 언어/표현 3~6개"],\n'
+            '  "emotion_points": ["감정 몰입 포인트 3~6개"],\n'
+            '  "info_delivery": ["정보 전달 방식 특징 3~6개"]\n'
+            '}'
+        )
 
-    const computedHash = String(hashExplicit || stableHash(String(url || title || ''))).trim();
-    if (!computedHash) continue;
+    def _build_hooking_prompt() -> str:
+        return (
+            _persona() + '\n\n'
+            '2. 후킹 프롬프트 — "영상에 쓰인 후킹 패턴은?"\n'
+            '대본의 시작부(가능하면 첫 문장 기준)에서 시청자의 궁금증을 유발한 핵심을 1줄로 "요약"하고, 사용된 후킹 패턴을 분류해 표로 작성하세요.\n'
+            '출력은 마크다운 표 한 개만(열 머리 포함), 다른 텍스트 금지.\n'
+            '| 🤔 후킹 요약 | 패턴(분류) |\n| :--- | :--- |\n| (시작부 요약 1줄) | (예: 의문제시/과장/반전/위기제시/금기발화/강한명령/모순 제시 등) |'
+        )
 
-    incoming.push({
-      hash: computedHash,
-      thumbnail: thumb,
-      title,
-      views: views ? String(views) : '',
-      views_numeric: (views_numeric_raw !== undefined ? views_numeric_raw : undefined),
-      channel,
-      date,
-      subscribers: subs,
-      subscribers_numeric: (subs_numeric_raw !== undefined ? subs_numeric_raw : undefined),
-      youtube_url: url,
-      group_name,
-      template_type,
-      update_date: normalizeUpdateDate(update_date_raw)
-    });
-  }
-  // A) 업로드 내 중복 해시 병합(첫 항목 기준, 누락값만 채움)
-  if (incoming.length > 1) {
-    const beforeDedup = incoming.length;
-    const byHash = new Map();
-    for (const item of incoming) {
-      const prev = byHash.get(item.hash);
-      if (!prev) { byHash.set(item.hash, item); continue; }
-      // 문자열/값 병합: prev가 비었으면 item으로 채움
-      if (item.thumbnail && isEmptyStringValue(prev.thumbnail)) prev.thumbnail = item.thumbnail;
-      if (item.title && isEmptyStringValue(prev.title)) prev.title = item.title;
-      if (item.views && isEmptyStringValue(prev.views)) prev.views = item.views;
-      if (item.views_numeric != null && isEmptyNumericValue(prev.views_numeric)) prev.views_numeric = toBigIntSafe(item.views_numeric);
-      if (item.channel && isEmptyStringValue(prev.channel)) prev.channel = item.channel;
-      if (item.date && isEmptyStringValue(prev.date)) prev.date = item.date;
-      if (item.subscribers && isEmptyStringValue(prev.subscribers)) prev.subscribers = item.subscribers;
-      if (item.subscribers_numeric != null && isEmptyNumericValue(prev.subscribers_numeric)) prev.subscribers_numeric = toBigIntSafe(item.subscribers_numeric);
-      if (item.youtube_url && isEmptyStringValue(prev.youtube_url)) prev.youtube_url = item.youtube_url;
-      if (item.group_name && isEmptyStringValue(prev.group_name)) prev.group_name = item.group_name;
-      if (item.template_type && isEmptyStringValue(prev.template_type)) prev.template_type = item.template_type;
-      if (canWriteUpdateDate && item.update_date && isEmptyStringValue(prev.update_date)) prev.update_date = item.update_date;
-    }
-    incoming = Array.from(byHash.values());
-    const afterDedup = incoming.length;
-    if (afterDedup !== beforeDedup) {
-      uploadStatus.textContent = `변경사항 분석 중... (중복 병합: ${beforeDedup} → ${afterDedup})`;
-    }
-  }
-  if (!incoming.length) { uploadStatus.textContent = '업로드할 유효한 행이 없습니다.'; uploadStatus.style.color = 'orange'; return; }
+    def _build_structure_prompt() -> str:
+        return (
+            _persona() + '\n\n'
+            '1. 기승전결 프롬프트 — "영상에 나타나는 기승전결 구조는?"\n'
+            '대본에서 기·승·전·결의 핵심을 각 1문장으로 "요약"해 표로 작성하세요(원문 복사 금지).\n'
+            '출력은 마크다운 표 한 개만, 다른 텍스트 금지.\n'
+            '| 구분 | 요약 |\n| :--- | :--- |\n| 기 (상황 도입) | ... |\n| 승 (사건 전개) | ... |\n| 전 (위기/전환) | ... |\n| 결 (결말) | ... |'
+        )
 
-  // 2) 기존 데이터 조회 (hash 기준) — 이미 DB에 있는 해시는 삽입 대상에서 제거
-  const BATCH = 500; let processed = 0;
-  const hashList = incoming.map(r => r.hash);
-  const existingByHash = new Map();
-  const totalBatches = Math.max(1, Math.ceil(hashList.length / BATCH));
-  for (let i = 0; i < hashList.length; i += BATCH) {
-    const slice = hashList.slice(i, i + BATCH);
-    const selectFields = canWriteUpdateDate
-      ? 'id,hash,thumbnail,title,views,views_numeric,channel,date,update_date,subscribers,subscribers_numeric,youtube_url,group_name,template_type'
-      : 'id,hash,thumbnail,title,views,views_numeric,channel,date,subscribers,subscribers_numeric,youtube_url,group_name,template_type';
-    try {
-      const { data: rows, error } = await supabase
-        .from('videos')
-        .select(selectFields)
-        .in('hash', slice);
-      if (error) throw error;
-      (rows || []).forEach(r => existingByHash.set(r.hash, r));
-    } catch (e) {
-      uploadStatus.textContent = `기존 데이터 조회 실패: ${(e?.message || e)} (진행 ${Math.min(totalBatches, Math.floor(i / BATCH) + 1)}/${totalBatches})`;
-      uploadStatus.style.color = 'orange';
-      return;
-    }
-    const doneBatches = Math.min(totalBatches, Math.floor(i / BATCH) + 1);
-    uploadStatus.textContent = `기존 데이터 조회 중... ${doneBatches}/${totalBatches}`;
-    await new Promise(r => setTimeout(r, 0));
-  }
-  uploadStatus.textContent = `기존 데이터 조회 완료 (${existingByHash.size}개 일치). 삽입/업데이트 준비 중...`;
-
-  // 3) 삽입 대상과 "누락 채움" 업데이트 대상 분리 (중복 삽입 방지)
-  const toInsert = [];
-  const toUpdate = [];
-  const now = Date.now();
-  for (const item of incoming) {
-    const exist = existingByHash.get(item.hash);
-    if (!exist) {
-      // 신규: 제공된 값만으로 삽입 (DB에 동일 hash가 없는 경우만)
-      const payload = { hash: item.hash, last_modified: now };
-      if (item.thumbnail) payload.thumbnail = item.thumbnail;
-      if (item.title) payload.title = item.title;
-      if (item.views) payload.views = item.views;
-      if (item.views_numeric != null) payload.views_numeric = toBigIntSafe(item.views_numeric);
-      if (item.channel) payload.channel = item.channel;
-      if (item.date) payload.date = item.date;
-      if (item.subscribers) payload.subscribers = item.subscribers;
-      if (item.subscribers_numeric != null) payload.subscribers_numeric = toBigIntSafe(item.subscribers_numeric);
-      if (item.youtube_url) payload.youtube_url = item.youtube_url;
-      if (item.group_name) payload.group_name = item.group_name;
-      if (item.template_type) payload.template_type = item.template_type;
-      if (canWriteUpdateDate && item.update_date) payload.update_date = item.update_date;
-      toInsert.push(payload);
-    } else {
-      // 기존: 누락된 필드만 채우기 (null/빈 문자열만 누락으로 간주)
-      const upd = { id: exist.id };
-      let has = false;
-      if (item.thumbnail && isEmptyStringValue(exist.thumbnail)) { upd.thumbnail = item.thumbnail; has = true; }
-      if (item.title && isEmptyStringValue(exist.title)) { upd.title = item.title; has = true; }
-      if (item.views && isEmptyStringValue(exist.views)) { upd.views = item.views; has = true; }
-      if (item.views_numeric != null && isEmptyNumericValue(exist.views_numeric)) { upd.views_numeric = toBigIntSafe(item.views_numeric); has = true; }
-      if (item.channel && isEmptyStringValue(exist.channel)) { upd.channel = item.channel; has = true; }
-      if (item.date && isEmptyStringValue(exist.date)) { upd.date = item.date; has = true; }
-      if (item.subscribers && isEmptyStringValue(exist.subscribers)) { upd.subscribers = item.subscribers; has = true; }
-      if (item.subscribers_numeric != null && isEmptyNumericValue(exist.subscribers_numeric)) { upd.subscribers_numeric = toBigIntSafe(item.subscribers_numeric); has = true; }
-      if (item.youtube_url && isEmptyStringValue(exist.youtube_url)) { upd.youtube_url = item.youtube_url; has = true; }
-      if (item.group_name && isEmptyStringValue(exist.group_name)) { upd.group_name = item.group_name; has = true; }
-      if (item.template_type && isEmptyStringValue(exist.template_type)) { upd.template_type = item.template_type; has = true; }
-      // 기존 row에 update_date가 이미 있으면 유지(최초 업로드일 고정). 비어있을 때만 채움
-      if (canWriteUpdateDate && item.update_date && isEmptyStringValue(exist.update_date)) { upd.update_date = item.update_date; has = true; }
-      if (has) { upd.last_modified = now; toUpdate.push(upd); }
-    }
-  }
-
-  // 4) 삽입 처리
-  let inserted = 0, updated = 0;
-  for (let i = 0; i < toInsert.length; i += BATCH) {
-    const chunk = toInsert.slice(i, i + BATCH);
-    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'hash' });
-    if (error) { uploadStatus.textContent = '삽입/업서트 실패: ' + error.message; uploadStatus.style.color='red'; return; }
-    inserted += chunk.length; processed += chunk.length;
-    uploadStatus.textContent = `처리 중... 삽입 ${inserted}, 업데이트 ${updated}`;
-    await new Promise(r => setTimeout(r, 60));
-  }
-
-  // 5) 누락 채움 업데이트 처리 (id 충돌로 업데이트)
-  for (let i = 0; i < toUpdate.length; i += BATCH) {
-    const chunk = toUpdate.slice(i, i + BATCH);
-    const { error } = await supabase.from('videos').upsert(chunk, { onConflict: 'id' });
-    if (error) { uploadStatus.textContent = '누락 채움 실패: ' + error.message; uploadStatus.style.color='orange'; return; }
-    updated += chunk.length; processed += chunk.length;
-    uploadStatus.textContent = `처리 중... 삽입 ${inserted}, 업데이트 ${updated}`;
-    await new Promise(r => setTimeout(r, 60));
-  }
-
-  uploadStatus.textContent = `완료: 삽입 ${inserted}, 누락 채움 업데이트 ${updated}`;
-  uploadStatus.style.color = 'green';
-  selectedFile = null; fileNameDisplay.textContent = ''; fileNameDisplay.classList.remove('active');
-  fetchAndDisplayData();
-}
-
-// ---------- Export JSON (download + Supabase Storage) ----------
-if (exportJsonBtn) {
-  exportJsonBtn.addEventListener('click', async () => {
-    try {
-      exportStatus.style.display = 'block'; exportStatus.textContent = '데이터 내보내는 중...'; exportStatus.style.color = '';
-      const { data, error } = await supabase.from('videos').select('*');
-      if (error) throw error;
-      const rows = data || [];
-      const jsonText = JSON.stringify(rows, null, 2);
-      // 1) 로컬 다운로드
-      const url = URL.createObjectURL(new Blob([jsonText], { type: 'application/json' }));
-      const a = document.createElement('a'); a.href = url; a.download = `videos_${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
-      // 2) Supabase Storage 업로드 (bucket: public, path: data/videos.json)
-      try {
-        const path = 'data/videos.json';
-        const { error: upErr } = await supabase.storage.from('public').upload(path, new Blob([jsonText], { type:'application/json' }), { upsert: true, contentType: 'application/json' });
-        if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from('public').getPublicUrl(path);
-        const publicUrl = pub?.publicUrl || '';
-        await supabase.from('system').upsert({ id: 'settings', videos_json_url: publicUrl, last_build: new Date().toISOString() }, { onConflict: 'id' });
-        exportStatus.textContent = `✅ ${rows.length}개 JSON 내보내기 및 업로드 완료`;
-        exportStatus.style.color = 'green';
-        } catch (e) {
-        exportStatus.textContent = `다운로드 완료, 업로드 실패: ${e?.message || e}`;
-        exportStatus.style.color = 'orange';
-      }
-        } catch (e) {
-      exportStatus.style.display = 'block'; exportStatus.textContent = '❌ 내보내기 실패: ' + (e?.message || e); exportStatus.style.color = 'red';
+    def _parse_material_sections(text: str):
+        # Prefer strict JSON parse; fallback to regex capture
+        import re, json as _json
+        main_idea = ''
+        core_materials = []
+        lang_patterns = []
+        emotion_points = []
+        info_delivery = []
+        t = (text or '').strip()
+        if not t:
+            return {
+                'main_idea': main_idea,
+                'core_materials': core_materials,
+                'lang_patterns': lang_patterns,
+                'emotion_points': emotion_points,
+                'info_delivery': info_delivery
+            }
+        # Try JSON
+        try:
+            payload = _json.loads(t)
+            if isinstance(payload, dict):
+                main_idea = str(payload.get('main_idea') or '').strip()
+                core_materials = [str(x).strip() for x in (payload.get('core_materials') or []) if str(x).strip()][:12]
+                lang_patterns = [str(x).strip() for x in (payload.get('lang_patterns') or []) if str(x).strip()][:12]
+                emotion_points = [str(x).strip() for x in (payload.get('emotion_points') or []) if str(x).strip()][:12]
+                info_delivery = [str(x).strip() for x in (payload.get('info_delivery') or []) if str(x).strip()][:12]
+                return {
+                    'main_idea': main_idea,
+                    'core_materials': core_materials,
+                    'lang_patterns': lang_patterns,
+                    'emotion_points': emotion_points,
+                    'info_delivery': info_delivery
+                }
+        except Exception:
+            # try to extract JSON object inside code fences or surrounding text
+            try:
+                start = t.index('{')
+                end = t.rindex('}') + 1
+                payload = _json.loads(t[start:end])
+                if isinstance(payload, dict):
+                    main_idea = str(payload.get('main_idea') or '').strip()
+                    core_materials = [str(x).strip() for x in (payload.get('core_materials') or []) if str(x).strip()][:12]
+                    lang_patterns = [str(x).strip() for x in (payload.get('lang_patterns') or []) if str(x).strip()][:12]
+                    emotion_points = [str(x).strip() for x in (payload.get('emotion_points') or []) if str(x).strip()][:12]
+                    info_delivery = [str(x).strip() for x in (payload.get('info_delivery') or []) if str(x).strip()][:12]
+                    return {
+                        'main_idea': main_idea,
+                        'core_materials': core_materials,
+                        'lang_patterns': lang_patterns,
+                        'emotion_points': emotion_points,
+                        'info_delivery': info_delivery
+                    }
+            except Exception:
+                pass
+        # Fallback: header-based capture
+        t = t.replace('\r', '')
+        m = re.search(r"메인\s*아이디어\s*\(Main\s*Idea\)\s*[:：]\s*(.+)", t)
+        if m:
+            main_idea = m.group(1).strip()
+        def capture_list_after(header_patterns, stop_patterns):
+            pat = re.compile(header_patterns, re.I)
+            stop = re.compile(stop_patterns, re.I) if stop_patterns else None
+            lines = t.split('\n')
+            capturing = False
+            acc = []
+            for line in lines:
+                if not capturing and pat.search(line):
+                    capturing = True
+                    continue
+                if capturing:
+                    if stop and stop.search(line):
+                        break
+                    s = line.strip()
+                    if not s:
+                        continue
+                    if re.match(r"^\s*(메인\s*아이디어|핵심\s*소재|3-1|3-2|3-3)\b", s):
+                        break
+                    s = re.sub(r"^[-*•·]\s*", '', s)
+                    acc.append(s)
+            return [x for x in acc if x and len(x) > 1][:12]
+        core_materials = capture_list_after(r"핵심\s*소재\s*\(Core\s*Materials\)\s*:?", r"^(3-1|3-2|3-3)\b")
+        lang_patterns = capture_list_after(r"^(3-1\s*반복되는\s*언어\s*패턴)\b|반복되는\s*언어\s*패턴\s*[:：]", r"^(3-2|3-3)\b")
+        emotion_points = capture_list_after(r"^(3-2\s*감정\s*몰입\s*포인트)\b|감정\s*몰입.*[:：]", r"^(3-3)\b")
+        info_delivery = capture_list_after(r"^(3-3\s*정보\s*전달\s*방식\s*특징)\b|정보\s*전달\s*방식.*[:：]", None)
+        return {
+            'main_idea': main_idea,
+            'core_materials': core_materials,
+            'lang_patterns': lang_patterns,
+            'emotion_points': emotion_points,
+            'info_delivery': info_delivery
         }
-    });
+
+    def _clean_sentences_ko(text: str):
+        t = (text or '')
+        # remove brackets and markers
+        import re
+        t = re.sub(r"\[[^\]]*\]", " ", t)
+        t = re.sub(r"^\s*>>.*", " ", t, flags=re.MULTILINE)
+        t = re.sub(r"\b(음악|박수|웃음|침묵|배경음|기침)\b", " ", t, flags=re.IGNORECASE)
+        t = t.replace('\r', '\n')
+        t = re.sub(r"\n{2,}", "\n", t)
+        t = re.sub(r"[\t ]{2,}", " ", t)
+        # Korean sentence ending hints
+        t = re.sub(r"(요|다|죠|네|습니다|습니까|네요|군요)([.!?])", r"\1\2\n", t)
+        # split
+        parts = re.split(r"(?<=[.!?…]|\n)\s+", t)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        # merge short
+        out = []
+        buf = ''
+        MIN = 10
+        for p in parts:
+            cur = (buf + ' ' + p).strip() if buf else p
+            if len(cur) < MIN:
+                buf = cur
+                continue
+            out.append(cur)
+            buf = ''
+        if buf:
+            out.append(buf)
+        # remove noise
+        out = [s for s in out if len(re.sub(r"[^\w\d가-힣]", "", s)) >= 3]
+        return out[:300]
+
+    def _estimate_dopamine(sentence: str) -> int:
+        # Richer heuristic for varied scores when LLM parsing fails
+        s = (sentence or '').strip()
+        s_lower = s.lower()
+        score = 5
+        # curiosity words
+        if any(k in s_lower for k in ['왜', '어떻게', '정말', '충격', '반전', '경악', '대박', '소름', '비밀', '최초', '금지', '경고']):
+            score += 2
+        # punctuation intensity
+        excl = s.count('!')
+        quest = s.count('?')
+        score += min(2, excl) + min(2, quest)
+        # numbers and superlatives
+        if any(ch.isdigit() for ch in s):
+            score += 1
+        if any(k in s_lower for k in ['가장', '최고', '최악', '첫', '완전']):
+            score += 1
+        # length normalization
+        ln = len(s)
+        if ln < 20:
+            score -= 1
+        elif ln > 120:
+            score -= 1
+        return max(1, min(10, score))
+
+    def _safe_json_arr(text: str):
+        try:
+            obj = json.loads(text)
+            return obj if isinstance(obj, list) else []
+        except Exception:
+            return []
+
+    def _build_dopamine_prompt(sentences):
+        header = '다음 "문장 배열"에 대해, 각 문장별로 궁금증/도파민 유발 정도를 1~10 정수로 평가하고, 그 이유를 간단히 설명하세요. 반드시 JSON 배열로만, 요소는 {"sentence":"문장","level":정수,"reason":"이유"} 형태로 출력하세요. 여는 대괄호부터 닫는 대괄호까지 외 텍스트는 출력하지 마세요.'
+        return header + '\n\n문장 배열:\n' + json.dumps(sentences, ensure_ascii=False)
+
+    # --- Validators to strictly require LLM-formatted outputs ---
+    def _is_md_table(text: str) -> bool:
+        t = (text or '').strip()
+        return '|' in t and '\n' in t and t.count('|') >= 6
+
+    def _looks_like_structure_table(text: str) -> bool:
+        t = (text or '').lower()
+        return ('| 기' in t) and ('| 승' in t) and ('| 전' in t) and ('| 결' in t)
+
+    def _material_json_ok(text: str) -> bool:
+        try:
+            obj = json.loads(text)
+            return (
+                isinstance(obj, dict) and
+                isinstance(obj.get('main_idea', ''), str) and
+                isinstance(obj.get('core_materials', []), list) and
+                isinstance(obj.get('lang_patterns', []), list) and
+                isinstance(obj.get('emotion_points', []), list) and
+                isinstance(obj.get('info_delivery', []), list)
+            )
+        except Exception:
+            return False
+
+    def _call_strict(kind: str, prompt: str, content: str, validator, tries: int = 3) -> str:
+        last = ''
+        for _ in range(max(1, tries)):
+            last = (_call_gemini(prompt, content) or '').strip()
+            if validator(last):
+                break
+            try:
+                time.sleep(0.3)
+            except Exception:
+                pass
+        return last
+
+    def _call_array_only(kind: str, label: str, text: str, min_len: int = 3, max_len: int = 8) -> list:
+        prompt = (
+            _persona() + '\n\n'
+            f'아래 대본을 참고해 "{label}" 항목을 {min_len}~{max_len}개 추출하세요.\n'
+            '반드시 JSON 배열로만 출력하세요. 예: ["항목1","항목2"]\n'
+            '불릿/설명/코드펜스/기타 텍스트 금지.'
+        )
+        out = []
+        try:
+            raw = _call_gemini(prompt, text)
+            arr = json.loads(raw)
+            if isinstance(arr, list):
+                out = [str(x).strip() for x in arr if str(x).strip()][:max_len]
+        except Exception:
+            out = []
+        return out
+
+    def _analyze_video_fast(doc):  # type: ignore
+        transcript = (doc or {}).get('transcript_text') or ''
+        if not transcript:
+            raise RuntimeError('no transcript_text in DB')
+        # Trim overly long transcripts to improve latency
+        max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
+        tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+        # 후킹 입력은 시작부 요약 정확도를 위해 처음 2~3문장만 전달
+        first_sents = _clean_sentences_ko(tshort)[:3]
+        hook_input = ' '.join(first_sents)[:800]
+        # Direct LLM calls without strict validation - just get the response
+        results = { 'material': '', 'hooking': '', 'structure': '' }
+        
+        # Combine all analyses into ONE LLM call to reduce API calls
+        import time
+        
+        # Single combined prompt for all analyses
+        combined_prompt = """아래 영상 대본을 분석해서 정확히 다음 JSON 형식으로만 답하세요:
+{
+  "material": "핵심 소재 3줄 요약",
+  "hooking": "첫 문장 후킹 포인트 1줄",
+  "structure": "기승전결 구조 4줄 요약"
 }
 
-// ---------- Schedules ----------
-async function createSchedule(scope, ids, runAt, forceType) {
-  const type = forceType || (document.querySelector('input[name="schedule-type"]:checked')?.value) || 'analysis';
-  const now = new Date();
-  const nowIso = new Date(now.getTime()).toISOString();
-  // datetime-local 값은 로컬 타임존 기준의 벽시각. 이를 실제 순간(UTC) ISO로 변환
-  const local = new Date(runAt);
-  const runAtIso = new Date(local.getTime()).toISOString();
-  const cfg = {
-    type,
-        scope,
-    remaining_ids: scope === 'selected' ? ids : [],
-        status: 'pending',
-    run_at: runAtIso,
-    created_at: nowIso,
-    updated_at: nowIso
-  };
-  // 최소 스키마(id, date, content, created_at)에 맞춰 저장
-  // date는 날짜만 보존되어 오동작을 유발하므로 빈 값으로 두거나(권장) content.run_at만 사용합니다.
-  const payload = { content: JSON.stringify(cfg), created_at: nowIso };
-  const { data, error } = await supabase.from('schedules').insert(payload).select('id').single();
-  if (error) throw error; return data.id;
-}
-
-function parseScheduleContent(row) {
-  let cfg = {};
-  try {
-    if (row && typeof row.content === 'string') cfg = JSON.parse(row.content);
-    else if (row && typeof row.content === 'object' && row.content) cfg = row.content;
-  } catch {}
-  const type = cfg.type || row?.type || 'analysis';
-  const scope = cfg.scope || row?.scope || 'all';
-  const remainingIds = cfg.remaining_ids || cfg.ids || row?.remaining_ids || row?.ids || [];
-  const status = cfg.status || row?.status || 'pending';
-  // 실행/표시는 시간 손실이 없는 값만 사용
-  // 표시: content.run_at(ISO) 또는 row.run_at(ISO)만 허용. date 컬럼은 무시(날짜만이라 KST 09:00로 보일 수 있음)
-  const runAtIso = cfg.run_at || row?.run_at || null;
-  return { type, scope, remainingIds, status, runAtIso };
-}
-
-async function listSchedules() {
-  const { data, error } = await supabase.from('schedules').select('*');
-  if (error) return [];
-  const rows = data || [];
-  return rows.sort((a,b) => {
-    const A = new Date(parseScheduleContent(a).runAtIso || 0).getTime();
-    const B = new Date(parseScheduleContent(b).runAtIso || 0).getTime();
-    return A - B;
-  });
-}
-
-async function cancelSchedule(id) {
-  const { data } = await supabase.from('schedules').select('*').eq('id', id).single();
-  let cfg = {};
-  try { cfg = typeof data?.content === 'string' ? JSON.parse(data.content) : (data?.content || {}); } catch {}
-  cfg.status = 'canceled'; cfg.updated_at = new Date().toISOString();
-  if (data?.content !== undefined) {
-    await supabase.from('schedules').update({ content: JSON.stringify(cfg) }).eq('id', id);
-  } else {
-    await supabase.from('schedules').update({ status: 'canceled', updated_at: new Date().toISOString() }).eq('id', id);
-  }
-}
-
-function renderSchedulesTable(rows) {
-    if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
-    const html = `
-    <table class="data-table">
-        <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
-        <tbody>
-            ${rows.map(r => `
-            <tr data-id="${r.id}">
-                <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
-                <td>${r.id}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''; })()}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
-          <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
-            </tr>`).join('')}
-        </tbody>
-    </table>`;
-    schedulesTableContainer.innerHTML = html;
-  document.getElementById('sched-select-all')?.addEventListener('change', (e) => {
-        document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
-    });
-}
-
-async function refreshSchedulesUI() {
-    const rows = await listSchedules();
-  renderSchedulesTable(rows);
-}
-
-scheduleCreateBtn?.addEventListener('click', async () => {
-        const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
-        const runAtStr = scheduleTimeInput?.value || '';
-        if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
-        const runAt = new Date(runAtStr).getTime();
-  if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-        let ids = [];
-        if (scope === 'selected') {
-    ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-            if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
+대본:
+"""
+        
+        try:
+            # Single API call for all three analyses
+            time.sleep(1)  # Small initial delay
+            combined_resp = _call_gemini(combined_prompt, tshort[:5000])
+            
+            # Parse combined response
+            if combined_resp:
+                try:
+                    # Try to parse as JSON
+                    parsed = json.loads(combined_resp)
+                    results['material'] = parsed.get('material', '소재 분석')[:2000]
+                    results['hooking'] = parsed.get('hooking', '후킹 분석')[:1000]
+                    results['structure'] = parsed.get('structure', '구조 분석')[:1000]
+                except:
+                    # Fallback: use whole response as material
+                    results['material'] = combined_resp[:2000]
+                    results['hooking'] = '후킹 분석 중'
+                    results['structure'] = '구조 분석 중'
+            else:
+                results['material'] = '분석 실패'
+                results['hooking'] = '분석 실패'
+                results['structure'] = '분석 실패'
+                
+        except Exception as e:
+            print(f"Combined analysis error: {e}")
+            results['material'] = f'분석 오류: {str(e)[:100]}'
+            results['hooking'] = '분석 오류'
+            results['structure'] = '분석 오류'
+        # dopamine graph - simplified to reduce API calls
+        sentences = _clean_sentences_ko(tshort)[:30]  # Limit to 30 sentences
+        dopamine_graph = []
+        # Skip LLM for dopamine to save API calls - use heuristic only
+        for s in sentences:
+            dopamine_graph.append({ 
+                'sentence': s[:200], 
+                'level': _estimate_dopamine(s), 
+                'reason': 'auto' 
+            })
+        # parse material into sections for new detail boxes
+        material_sections = _parse_material_sections(results['material'])
+        
+        # Always fill sections if empty - don't require strict format
+        if not material_sections.get('main_idea') and results['material']:
+            # Extract first meaningful line as main idea
+            lines = results['material'].split('\n')
+            for line in lines:
+                if line.strip() and len(line.strip()) > 10:
+                    material_sections['main_idea'] = line.strip()[:200]
+                    break
+                    
+        # If still no sections, make direct calls
+        if not material_sections.get('core_materials'):
+            try:
+                resp = _call_gemini(_persona() + '\n\n핵심 소재 3~7개를 쉼표로 구분해 나열하세요. 다른 설명 없이 소재만.', tshort[:3000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:7]
+                    if items:
+                        material_sections['core_materials'] = items
+            except Exception:
+                pass
+                
+        # Ensure all arrays have actual content
+        if not material_sections.get('lang_patterns') or material_sections['lang_patterns'] == ['반복 표현 분석 중', '패턴 추출 중']:
+            try:
+                resp = _call_gemini("반복되는 언어 패턴 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['lang_patterns'] = items
+            except:
+                material_sections['lang_patterns'] = ['패턴 분석 실패']
+                
+        if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
+            try:
+                resp = _call_gemini("감정 몰입 포인트 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['emotion_points'] = items
+            except:
+                material_sections['emotion_points'] = ['감정 분석 실패']
+                
+        if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
+            try:
+                resp = _call_gemini("정보 전달 특징 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                if resp:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
+                    if items:
+                        material_sections['info_delivery'] = items
+            except:
+                material_sections['info_delivery'] = ['전달 방식 분석 실패']
+        return {
+            'material': results['material'][:2000] if results['material'] else None,
+            'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
+            'material_core_materials': material_sections.get('core_materials') or None,
+            'material_lang_patterns': material_sections.get('lang_patterns') or None,
+            'material_emotion_points': material_sections.get('emotion_points') or None,
+            'material_info_delivery': material_sections.get('info_delivery') or None,
+            'hooking': results['hooking'][:2000] if results['hooking'] else None,
+            'narrative_structure': results['structure'][:4000] if results['structure'] else None,
+            'dopamine_graph': dopamine_graph,
+            'analysis_transcript_len': len(transcript),
+            'last_modified': int(time.time()*1000)
         }
-        scheduleCreateStatus.textContent = '예약 등록 중...';
-  try { const id = await createSchedule(scope, ids, runAt); scheduleCreateStatus.textContent = `예약 등록 완료: ${id}`; await refreshSchedulesUI(); }
-  catch (e) { scheduleCreateStatus.textContent = '예약 등록 실패: ' + (e?.message || e); }
-});
 
-scheduleRankingBtn?.addEventListener('click', async () => {
-  const runAtStr = scheduleTimeInput?.value || '';
-  if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
-  const runAt = new Date(runAtStr).getTime();
-  if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-        scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
-  try { const id = await createSchedule('all', [], runAt, 'ranking'); scheduleCreateStatus.textContent = `랭킹 예약 완료: ${id}`; await refreshSchedulesUI(); }
-  catch (e) { scheduleCreateStatus.textContent = '등록 실패: ' + (e?.message || e); }
-});
+app = Flask(__name__)
 
-rankingRefreshNowBtn?.addEventListener('click', async () => {
-  scheduleCreateStatus.textContent = '랭킹 즉시 갱신 요청 등록 중...';
-  try { const id = await createSchedule('all', [], Date.now(), 'ranking'); scheduleCreateStatus.textContent = `즉시 갱신 요청 완료: ${id}`; await refreshSchedulesUI(); }
-  catch (e) { scheduleCreateStatus.textContent = '요청 실패: ' + (e?.message || e); }
-});
+@app.after_request
+def add_cors_headers(resp):
+    try:
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    except Exception:
+        pass
+    return resp
 
-schedulesTableContainer?.addEventListener('click', async (e) => {
-        const btn = e.target.closest('.btn-cancel-schedule');
-  if (!btn) return;
-  await cancelSchedule(btn.getAttribute('data-id'));
-            await refreshSchedulesUI();
-    });
 
-schedulesBulkDeleteBtn?.addEventListener('click', async () => {
-        const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
-        if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
-  await supabase.from('schedules').delete().in('id', ids);
-        await refreshSchedulesUI();
-    });
+@app.route('/', methods=['POST', 'OPTIONS'])
+@app.route('/analyze_one', methods=['POST', 'OPTIONS'])
+@app.route('/api/analyze_one', methods=['POST', 'OPTIONS'])
+def analyze_one():
+    if request.method == 'OPTIONS':
+        return ('', 204)
+    # Readiness: _analyze_video는 사용하지 않으므로 _load_sb만 확인
+    if _load_sb is None:
+        return jsonify({ 'ok': False, 'error': 'server_not_ready' }), 500
+    try:
+        stage = 'load_sb'
+        sb = _load_sb()
+        body = {}
+        try:
+            body = request.get_json(force=True) or {}
+        except Exception:
+            body = {}
+        vid = str(body.get('id') or '').strip()
+        if not vid:
+            return jsonify({ 'ok': False, 'error': 'missing id' }), 400
+        stage = 'fetch_video'
+        row = sb.table('videos').select('*').eq('id', vid).limit(1).execute()
+        rows = getattr(row, 'data', []) or []
+        if not rows:
+            return jsonify({ 'ok': False, 'error': 'not_found' }), 404
+        video = rows[0]
+        stage = 'analyze'
+        # use faster analyzer
+        updated = _analyze_video_fast(video) or {}
+        if updated:
+            # 스키마에 없는 컬럼은 제거 + None 값 제외
+            allowed = set(video.keys())
+            payload = { k: v for k, v in updated.items() if k in allowed and v is not None }
+            # 빈 배열도 제외 (DB가 null을 기대하는 경우)
+            filtered_payload = {}
+            for k, v in payload.items():
+                if isinstance(v, list) and len(v) == 0:
+                    continue  # skip empty arrays
+                if isinstance(v, str) and v.strip() == '':
+                    continue  # skip empty strings
+                filtered_payload[k] = v
+            if filtered_payload:
+                stage = 'update'
+                sb.table('videos').update(filtered_payload).eq('id', vid).execute()
+            payload = filtered_payload  # use filtered for response
+        wanted = list(updated.keys()) if updated else []
+        saved = list(payload.keys()) if updated else []
+        skipped = [k for k in wanted if k not in (saved or [])]
+        # 디버깅: 실제 저장된 값 샘플 확인
+        sample_fields = {}
+        debug_info = {}
+        if updated:
+            for k in ['material', 'hooking', 'narrative_structure', 'material_core_materials', 'material_lang_patterns']:
+                v = updated.get(k)
+                if v is None:
+                    debug_info[k] = 'None'
+                elif isinstance(v, list):
+                    debug_info[k] = f'list({len(v)} items)'
+                    if len(v) > 0:
+                        sample_fields[k] = str(v[0])[:50] if v else '[]'
+                elif isinstance(v, str):
+                    debug_info[k] = f'str({len(v)} chars)'
+                    sample_fields[k] = v[:100] + '...' if len(v) > 100 else v
+                else:
+                    debug_info[k] = f'{type(v).__name__}'
+        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields, 'debug': debug_info })
+    except Exception as e:
+        app.logger.exception('analyze_one failed')
+        return jsonify({ 'ok': False, 'error': str(e), 'stage': locals().get('stage', 'unknown'), 'trace': traceback.format_exc()[:2000] }), 500
 
-// ---------- Analysis helpers ----------
-function getTranscriptServerUrl() {
-  try { return localStorage.getItem('transcript_server_url') || '/api'; } catch { return '/api'; }
-}
-function showAnalysisBanner(msg) {
-  analysisBanner?.classList.remove('hidden');
-  if (analysisBannerText) analysisBannerText.textContent = msg || '';
-  if (analysisProgressBar) analysisProgressBar.style.width = '0%';
-  if (analysisLogEl) analysisLogEl.textContent = '';
-}
-let ABORT_CURRENT = false;
-stopCurrentBtn?.addEventListener('click', () => { ABORT_CURRENT = true; appendAnalysisLog('요청 중단... 다음 아이템부터 멈춥니다.'); });
 
-function updateAnalysisProgress(done, total, suffix) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
-  if (analysisBannerText) analysisBannerText.textContent = `진행률 ${done}/${total} (${pct}%)` + (suffix ? ` — ${suffix}` : '');
-}
-function appendAnalysisLog(line) {
-  if (!analysisLogEl) return; const t = new Date().toLocaleTimeString();
-  analysisLogEl.textContent += `[${t}] ${line}\n`; analysisLogEl.scrollTop = analysisLogEl.scrollHeight;
-}
+@app.route('/health', methods=['GET'])
+def health():
+    return ('ok', 200)
 
-async function fetchTranscriptByUrl(youtubeUrl) {
-    const server = getTranscriptServerUrl();
-    // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
-    const url = server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en';
-    const res = await fetch(url);
-    if (!res.ok) {
-      let reason = '';
-      try { const j = await res.json(); reason = j && j.error ? String(j.error) : ''; } catch {}
-      const msg = 'Transcript fetch failed: ' + res.status + (reason ? (' ' + reason) : '');
-      throw new Error(msg);
-    }
-    const data = await res.json();
-    return data.text || '';
-}
-
-// --- YouTube API helpers (분리된 기능)
-async function fetchYoutubeViews(videoId, apiKey) {
-  const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-  url.searchParams.set('part', 'statistics');
-  url.searchParams.set('id', videoId);
-  url.searchParams.set('key', apiKey);
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error('views api http ' + res.status);
-  const data = await res.json();
-  const item = (data.items || [])[0];
-  const views = Number(item?.statistics?.viewCount || 0);
-  return views;
-}
-
-// 좋아요/댓글수 동시 갱신
-async function fetchYoutubeStats(videoId, apiKey) {
-  const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-  url.searchParams.set('part', 'statistics');
-  url.searchParams.set('id', videoId);
-  url.searchParams.set('key', apiKey);
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error('stats api http ' + res.status);
-  const data = await res.json();
-  const item = (data.items || [])[0] || { statistics: {} };
-  const stats = item.statistics || {};
-  return {
-    views: Number(stats.viewCount || 0),
-    likes: Number(stats.likeCount || 0),
-    comments: Number(stats.commentCount || 0)
-  };
-}
-
-// 지수 백오프 재시도 래퍼
-async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
-  let attempt = 0;
-  while (true) {
-    try { return await fn(); }
-    catch (e) {
-      attempt++;
-      if (attempt > retries) throw e;
-      const delay = Math.round(baseDelayMs * Math.pow(2, attempt - 1) * (1 + Math.random()*0.2));
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-}
-
-// fetch 타임아웃 유틸
-async function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: ctrl.signal });
-    return res;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-// --- 공용 처리기: 병렬 실행 + 키 로테이션 ---
-function getStoredKeysForRotation() {
-  const keys = getStoredYoutubeApiKeys();
-  return keys.filter(k => !!k);
-}
-
-async function processInBatches(ids, worker, { concurrency = 6, onProgress, onItemDone } = {}) {
-  let i = 0; let inFlight = 0; let done = 0; let failed = 0; let nextKeyIndex = 0; let startedAt = Date.now();
-  const keys = getStoredKeysForRotation();
-    const results = [];
-  return await new Promise((resolve) => {
-    const pump = () => {
-      if (done + failed >= ids.length && inFlight === 0) return resolve({ done, failed, results });
-      while (inFlight < concurrency && i < ids.length) {
-        const id = ids[i++];
-        const key = keys.length ? keys[nextKeyIndex++ % keys.length] : '';
-        inFlight++;
-        worker(id, key)
-          .then((r) => { results.push(r); done++; if (typeof onItemDone === 'function') { try { onItemDone(id, true, r); } catch {} } })
-          .catch((e) => { failed++; if (typeof onItemDone === 'function') { try { onItemDone(id, false, e); } catch {} } })
-          .finally(() => {
-          inFlight--;
-          if (typeof onProgress === 'function') {
-            const processed = done + failed;
-            const pct = Math.round((processed / ids.length) * 100);
-            const elapsed = (Date.now() - startedAt) / 1000;
-            const rate = processed / Math.max(1, elapsed);
-            const remain = ids.length - processed;
-            const etaSec = Math.round(remain / Math.max(0.001, rate));
-            onProgress({ processed, total: ids.length, pct, etaSec });
-          }
-          pump();
-        });
-      }
-    };
-    pump();
-  });
-}
-
-function estimateDopamineLocal(sentence) {
-  const s = String(sentence || '').toLowerCase();
-  let score = 3;
-  if (/충격|반전|경악|미친|대폭|폭로|소름|!|\?/.test(s)) score += 5;
-  return Math.max(1, Math.min(10, score));
-}
-
-function cleanTranscriptToSentences(text) {
-  let t = String(text || '');
-  // 제거: 대괄호 안내, >>, 무음/음악 등
-  t = t.replace(/\[[^\]]*\]/g, ' ')
-       .replace(/^\s*>>.*/gm, ' ')
-       .replace(/\b(음악|박수|웃음|침묵|배경음|기침)\b/gi, ' ');
-  // 공백 정리
-  t = t.replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').replace(/[\t ]{2,}/g, ' ');
-  // 한국어 종결어미 기반 문장 경계 보정: "요./다./죠./네./습니다/습니까/네요/군요" 뒤에 개행 삽입
-  t = t.replace(/(요|다|죠|네|습니다|습니까|네요|군요)([.!?])/g, '$1$2\n');
-  // 문장 분할
-  let parts = t.split(/(?<=[.!?…]|\n)\s+/).map(s => s.trim()).filter(Boolean);
-  // 너무 짧은 조각 병합
-  const out = [];
-  let buf = '';
-  const MIN = 10;
-  for (const p of parts) {
-    const cur = (buf ? buf + ' ' : '') + p;
-    if (cur.length < MIN) { buf = cur; continue; }
-    out.push(cur); buf = '';
-  }
-  if (buf) out.push(buf);
-  // 노이즈 라인 제거
-  return out.filter(s => s.replace(/[^\p{L}\p{N}]/gu, '').length >= 3);
-}
-
-async function analyzeOneVideo(video) {
-  // 저장된 대본만 사용. 재추출하지 않음
-  appendAnalysisLog(`(${video.id}) 저장된 대본 사용...`);
-  const transcript = String(video.transcript_text || '').trim();
-  if (!transcript) {
-    throw new Error('대본 없음: 먼저 대본 추출을 실행해야 합니다.');
-  }
-  const sentences = cleanTranscriptToSentences(transcript);
-  const MAX = 300;
-  const take = sentences.slice(0, MAX);
-  const dopamine_graph = take.map(s => ({ sentence: s, level: estimateDopamineLocal(s), reason: 'heuristic' }));
-  const updated = {
-    id: video.id,
-    analysis_transcript_len: transcript.length,
-    dopamine_graph,
-    // transcript_text는 유지 (재추출/변경 안 함)
-    last_modified: Date.now()
-  };
-  return { updated };
-}
-
-async function runAnalysisForIds(ids, opts = {}) {
-  analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
-  showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
-  let processed = 0, success = 0, failed = 0, skipped = 0;
-  ABORT_CURRENT = false;
-  // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
-  const preById = new Map();
-  try {
-    const FIELDS = 'id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure, material_main_idea, material_core_materials, material_lang_patterns, material_emotion_points, material_info_delivery';
-    const CHUNK = 1000;
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const slice = ids.slice(i, i + CHUNK);
-      const { data: preRows } = await supabase.from('videos').select(FIELDS).in('id', slice);
-      (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
+@app.route('/debug', methods=['GET'])
+@app.route('/api/analyze_one/debug', methods=['GET'])
+def debug():
+    try:
+        info = {
+            'has_SUPABASE_URL': bool(os.getenv('SUPABASE_URL')),
+            'has_SUPABASE_SERVICE_ROLE_KEY': bool(os.getenv('SUPABASE_SERVICE_ROLE_KEY')),
+            'has_SUPABASE_ANON_KEY': bool(os.getenv('SUPABASE_ANON_KEY')),
+            'has_GEMINI_API_KEY': bool(os.getenv('GEMINI_API_KEY')),
+            'routes': ['/api/analyze_one', '/api/analyze_one/debug', '/api/health']
         }
-    } catch {}
-  // 1) 즉시 필터링: transcript_unavailable=true 인 항목은 전부 제외(무조건 스킵)
-  ids = ids.filter(id => {
-    const pre = preById.get(id);
-    return !(pre && pre.transcript_unavailable === true);
-  });
-  // 동시 실행: 순차 옵션이 켜져있으면 1개씩 처리, 아니면 설정값 사용
-  const conc = SEQ_ANALYSIS ? 1 : ((opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
-  const worker = async (id) => {
-    if (ABORT_CURRENT) throw new Error('abort');
-    const pre = preById.get(id);
-    if (pre && pre.transcript_unavailable) { appendAnalysisLog(`(${id}) 스킵: transcript_unavailable=true`); return { skip: true }; }
-    // 재분석 조건: 기존 분석이 있어도 일부 섹션이 비어있다면 재분석 허용
-    const hasAnyAnalysis = pre && ((Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) || pre.material || pre.hooking || pre.narrative_structure);
-    const missingAny = pre && (
-      !pre.material || !pre.hooking || !pre.narrative_structure ||
-      !Array.isArray(pre.material_core_materials) || pre.material_core_materials.length === 0 ||
-      !Array.isArray(pre.material_lang_patterns) || pre.material_lang_patterns.length === 0 ||
-      !Array.isArray(pre.material_emotion_points) || pre.material_emotion_points.length === 0 ||
-      !Array.isArray(pre.material_info_delivery) || pre.material_info_delivery.length === 0
-    );
-    if (hasAnyAnalysis && !missingAny) { appendAnalysisLog(`(${id}) 스킵: 분석완료(누락없음)`); return { skip: true }; }
-    if (pre && !(String(pre.transcript_text || '').trim().length > 0)) { appendAnalysisLog(`(${id}) 스킵: 대본 없음`); return { skip: true }; }
-    // 안전확인(경합 방지)
-    try {
-      const { data: chk } = await supabase.from('videos').select('transcript_text').eq('id', id).single();
-      const hasT = !!(chk && String(chk.transcript_text || '').trim().length > 0);
-      if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
-    } catch {}
-    appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 180000);
-    let j = null; try { j = await res.json(); } catch {}
-    if (!res.ok) {
-      const stage = j && j.stage ? j.stage : '';
-      const err = j && j.error ? j.error : '';
-      const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
-      appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
-      if (trace) appendAnalysisLog(`trace: ${trace}`);
-      // 환경 변수 진단(간헐)
-      try {
-        const dbgRes = await fetch('/api/analyze_one/debug');
-        const dbg = await dbgRes.json();
-        const env = dbg && dbg.env ? dbg.env : {};
-        appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
-      } catch {}
-      throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
-    }
-    if (j && j.error) throw new Error(j.error);
-    // 디버깅: 실제 저장된 값 확인
-    const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
-    const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
-    // 실제로 저장된 항목 재확인
-    if (saved.length > 0) {
-      try {
-        const { data: verify } = await supabase.from('videos').select('material, hooking, narrative_structure, material_core_materials, material_lang_patterns').eq('id', id).single();
-        const actualSaved = [];
-        if (verify) {
-          if (verify.material) actualSaved.push('material');
-          if (verify.hooking) actualSaved.push('hooking');
-          if (verify.narrative_structure) actualSaved.push('narrative_structure');
-          if (Array.isArray(verify.material_core_materials) && verify.material_core_materials.length > 0) actualSaved.push('material_core_materials');
-          if (Array.isArray(verify.material_lang_patterns) && verify.material_lang_patterns.length > 0) actualSaved.push('material_lang_patterns');
-        }
-        if (actualSaved.length < saved.length) {
-          appendAnalysisLog(`(${id}) 저장 불일치: 서버=${saved.length}개, DB=${actualSaved.length}개 [실제: ${actualSaved.join(',')}]`);
-        }
-      } catch {}
-    }
-    return { ok: true, saved, skipped };
-  };
-  const { done, failed: failedCnt } = await processInBatches(ids, worker, {
-    concurrency: conc,
-    onProgress: ({ processed: p, total, pct }) => {
-      // 집계는 onItemDone에서 증가
-      updateAnalysisProgress(p, total);
-    },
-    onItemDone: async (id, ok, payload) => {
-      if (payload && payload.skip) { skipped++; }
-      else if (ok) { success++; }
-      else { failed++; }
-      processed = success + failed + skipped;
-      analysisStatus.textContent = `진행중... ${processed}/${ids.length} (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
-      if (ok) {
-        try { await refreshRowsByIds([id]); } catch {}
-        try {
-          const saved = (payload && Array.isArray(payload.saved)) ? payload.saved.join(',') : '';
-          const sample = (payload && payload.sample) ? JSON.stringify(payload.sample).slice(0, 200) : '';
-          const debug = (payload && payload.debug) ? JSON.stringify(payload.debug).slice(0, 200) : '';
-          appendAnalysisLog(`(${id}) 서버 분석 완료${saved ? ` [${saved}]` : ''}${sample ? ` 샘플: ${sample}` : ''}${debug ? ` 디버그: ${debug}` : ''}`);
-        } catch {}
-      }
-      // 장시간 처리 시 리소스 안정화를 위해 1000개마다 렌더/캐시 청소성 갱신
-      if (processed % 1000 === 0) {
-        try { await new Promise(r => setTimeout(r, 50)); } catch {}
-      }
-      // 외부 콜백(체크포인트 등)
-      if (typeof opts.onItemDoneGlobal === 'function') {
-        try { opts.onItemDoneGlobal(id, processed, { ok, skipped: !!(payload && payload.skip) }); } catch {}
-      }
-    }
-  });
-  analysisStatus.textContent = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`; analysisStatus.style.color = failed ? 'orange' : 'green';
-    updateAnalysisProgress(ids.length, ids.length, `성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`);
-}
-
-runAnalysisSelectedBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('분석할 항목을 선택하세요.'); return; }
-  const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
-  await runAnalysisForIds(ids, { large: useLarge });
-    });
-
-runAnalysisAllBtn?.addEventListener('click', async () => {
-        const ids = currentData.map(v => v.id);
-  if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
-  if (!BULK_SILENT) {
-    const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
-    if (!ok) return;
-  }
-  const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
-  await runAnalysisForIds(ids, { large: useLarge });
-    });
-
-// ---------- Comments (basic, optional) ----------
-function getStoredYoutubeApiKeys() { try { const raw = localStorage.getItem('youtube_api_keys_list') || ''; return raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean); } catch { return []; } }
-function pickRotatingKey(keys, i) { return keys.length ? keys[i % keys.length] : ''; }
-function extractVideoIdFromUrl(urlStr) { try { const u = new URL(urlStr); if (u.hostname.includes('youtu.be')) return u.pathname.split('/').pop(); if (u.searchParams.get('v')) return u.searchParams.get('v'); if (u.pathname.includes('/shorts/')) return u.pathname.split('/').pop(); return ''; } catch { return ''; } }
-
-async function fetchYoutubeComments(videoId, maxCount, keys) {
-  const out = []; let pageToken = ''; let reqIndex = 0;
-    while (out.length < maxCount) {
-        const key = pickRotatingKey(keys, reqIndex++);
-    if (!key) throw new Error('YouTube API 키가 없습니다.');
-    const remain = maxCount - out.length; const pageSize = Math.max(1, Math.min(100, remain));
-        const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
-    url.searchParams.set('part', 'snippet'); url.searchParams.set('videoId', videoId); url.searchParams.set('maxResults', String(pageSize)); url.searchParams.set('order', 'relevance'); url.searchParams.set('key', key); if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const res = await fetch(url.toString()); if (!res.ok) break; const data = await res.json();
-        const items = Array.isArray(data.items) ? data.items : [];
-    for (const it of items) { const sn = it.snippet?.topLevelComment?.snippet; if (!sn) continue; out.push({ author: sn.authorDisplayName||'', text: sn.textOriginal||sn.textDisplay||'', likeCount: Number(sn.likeCount||0), publishedAt: sn.publishedAt||'' }); if (out.length >= maxCount) break; }
-    if (out.length >= maxCount) break; pageToken = data.nextPageToken || ''; if (!pageToken) break;
-    }
-    return out;
-}
-
-runCommentsSelectedBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('댓글을 수집할 항목을 선택하세요.'); return; }
-  const want = Math.max(1, Math.min(1000, Number(commentCountInput?.value || 50)));
-  const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
-  analysisStatus.style.display = 'block'; analysisStatus.textContent = `댓글 수집 시작... (${ids.length}개)`; analysisStatus.style.color = '';
-  showAnalysisBanner(`댓글 수집 시작 (${ids.length}개)`);
-  let done = 0;
-  for (const id of ids) {
-    try {
-      const { data: row } = await supabase.from('videos').select('youtube_url,title').eq('id', id).single();
-      const vid = extractVideoIdFromUrl(row?.youtube_url || ''); if (!vid) { appendAnalysisLog(`(${id}) YouTube URL 없음`); continue; }
-      const comments = await fetchYoutubeComments(vid, want, keys);
-      const top = comments.sort((a,b) => (b.likeCount||0)-(a.likeCount||0)).slice(0, 20);
-      await supabase.from('videos').update({ comments_total: comments.length, comments_top: top, comments_fetched_at: new Date().toISOString(), last_modified: Date.now() }).eq('id', id);
-      done++; updateAnalysisProgress(done, ids.length, row?.title || id); appendAnalysisLog(`(${id}) 댓글 ${comments.length}개`);
-    } catch (e) { appendAnalysisLog(`(${id}) 댓글 오류: ${e?.message || e}`); }
-  }
-  analysisStatus.textContent = `댓글 수집 완료`;
-});
-
-// mirror actions on topbar chips
-chipRunSel?.addEventListener('click', () => runAnalysisSelectedBtn?.click());
-chipRunAll?.addEventListener('click', () => runAnalysisAllBtn?.click());
-chipTrSel?.addEventListener('click', () => ytTranscriptSelectedBtn?.click());
-chipVwSel?.addEventListener('click', () => ytViewsSelectedBtn?.click());
-chipExport?.addEventListener('click', () => exportJsonBtn?.click());
-
-// --- 분리된 버튼: 선택 대본 추출 (YouTube API 경유, Gemini 미사용)
-ytTranscriptSelectedBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
-  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
-  showAnalysisBanner(`대본 추출 시작 (${ids.length}개)`);
-  const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
-  // 스키마: transcript_unavailable 컬럼 탐지(있으면 실패시 플래그 저장 및 다음번 자동 스킵)
-  let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
-  const worker = async (id) => {
-    if (ABORT_CURRENT) throw new Error('abort');
-    const { data: row, error } = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
-    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
-    if (onlyMissing && row?.transcript_text && String(row.transcript_text).trim().length > 0) { ylog(`(${id}) skip (already has transcript)`); return; }
-    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); return; }
-    const url = row?.youtube_url || '';
-    if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
-    try {
-      const transcript = await fetchTranscriptByUrl(url);
-      await supabase.from('videos').update({ transcript_text: transcript, analysis_transcript_len: transcript.length, last_modified: Date.now() }).eq('id', id);
-      ylog(`(${id}) transcript saved (${transcript.length} chars)`);
-      appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
-      try { await refreshRowsByIds([id]); } catch {}
-        } catch (e) {
-      ylog(`(${id}) transcript error: ${e?.message || e}`);
-      appendAnalysisLog(`(${id}) 대본 오류: ${e?.message || e}`);
-      // 404 또는 자막 없음 케이스는 플래그 저장하여 다음번 자동 스킵
-      const msg = (e?.message || '').toString();
-      if (canFlag && /404|no_transcript_or_stt/i.test(msg)) {
-        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); try { await refreshRowsByIds([id]); } catch {} } catch {}
-      }
-      throw e;
-    }
-  };
-  const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
-  youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-  // 선택 항목만 가볍게 갱신하여 현재 페이지/필터 유지
-  await refreshRowsByIds(ids);
-});
-
-// --- 분리된 버튼: 선택 조회수 갱신 (YouTube Data API)
-ytViewsSelectedBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
-  const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
-  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
-  showAnalysisBanner(`조회수 갱신 시작 (${ids.length}개)`);
-  const onlyMissing = !!ytViewsOnlyMissing?.checked;
-  const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
-  const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
-  const worker = async (id, key) => {
-    const { data: row, error } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
-    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
-    if (onlyMissing && row?.views_numeric) { ylog(`(${id}) skip (has views_numeric)`); return; }
-    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) { ylog(`(${id}) skip (recently updated)`); return; }
-    const url = row?.youtube_url || '';
-    const u = new URL(url);
-    let videoId = u.searchParams.get('v') || '';
-    if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
-    if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
-    if (!videoId) { ylog(`(${id}) skip (bad youtube_url)`); throw new Error('no videoId'); }
-    let current, likes, comments;
-    try {
-      const stats = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
-      current = stats.views; likes = stats.likes; comments = stats.comments;
-    } catch (e) {
-      ylog(`(${id}) stats error: ${e?.message || e}`);
-      throw e;
-    }
-    const baseline = Number(row?.views_baseline_numeric || 0);
-    const prevCurrent = Number(row?.views_numeric || 0);
-    const prevCheckedAt = Number(row?.views_last_checked_at || 0) || null;
-    const patch = { 
-      views_numeric: current,
-      likes_numeric: likes,
-      comments_total: comments,
-      views_last_checked_at: Date.now()
-    };
-    if (prevCurrent > 0) {
-      patch.views_prev_numeric = prevCurrent;
-      if (prevCheckedAt) patch.views_prev_checked_at = prevCheckedAt;
-    }
-    if (!baseline) patch.views_baseline_numeric = current; // 최초 1회만 베이스라인 세팅
-    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
-    catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
-    appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
-  };
-  const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
-  youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-  await fetchAndDisplayData();
-});
-
-// --- 전체 처리 버튼들 ---
-ytTranscriptAllBtn?.addEventListener('click', async () => {
-  if (!BULK_SILENT) {
-    if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
-  }
-  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
-  showAnalysisBanner('전체 대본 추출 시작');
-  // 1) ID 오름차순으로 정렬
-  let ids = sortIdsAsc(currentData.map(v => v.id));
-  const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
-  let canFlag = false; try { const probe = await supabase.from('videos').select('transcript_unavailable').limit(0); canFlag = !probe.error; } catch {}
-  // 2) 체크포인트 불러오기: last_id 이후부터 재시작
-  const ck = await loadTranscriptCheckpoint();
-  if (ck && ck.content?.last_id) {
-    const lastId = String(ck.content.last_id);
-    const idx = ids.findIndex(x => String(x) === lastId);
-    if (idx >= 0) ids = ids.slice(idx + 1);
-  }
-
-  let checkpointId = ck ? ck.id : null;
-  let processed = 0;
-  // 빠른 사전 필터링: DB에서 미리 transcript_text/flag 상태를 가져와 스킵
-  const idMeta = new Map();
-  try {
-    const BATCH = 1000;
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const slice = ids.slice(i, i + BATCH);
-      const { data: rows } = await supabase.from('videos').select(canFlag ? 'id,transcript_text,transcript_unavailable,youtube_url' : 'id,transcript_text,youtube_url').in('id', slice);
-      (rows || []).forEach(r => idMeta.set(String(r.id), r));
-    }
-            } catch {}
-
-  const worker = async (id) => {
-    // 사전 메타 사용(가능하면)
-    let row = idMeta.get(String(id));
-    if (!row) {
-      const res = await supabase.from('videos').select(canFlag ? 'youtube_url,transcript_text,transcript_unavailable' : 'youtube_url,transcript_text').eq('id', id).single();
-      row = res?.data || null;
-      if (res?.error) { ylog(`(${id}) fetch row error: ${res.error.message}`); throw res.error; }
-    }
-    if (onlyMissing && hasNonEmptyTranscript(row?.transcript_text)) { ylog(`(${id}) skip (already has transcript)`); processed++; checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed); return; }
-    if (canFlag && row?.transcript_unavailable) { ylog(`(${id}) skip (transcript unavailable flagged)`); processed++; checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed); return; }
-    const url = row?.youtube_url || '';
-    if (!url) { ylog(`(${id}) skip (no youtube_url)`); throw new Error('no url'); }
-    try {
-      const transcript = await fetchTranscriptByUrl(url);
-      const toWrite = hasNonEmptyTranscript(transcript) ? transcript : '';
-      await supabase.from('videos').update({ transcript_text: toWrite, analysis_transcript_len: toWrite.length, last_modified: Date.now() }).eq('id', id);
-      ylog(`(${id}) transcript saved (${transcript.length} chars)`);
-      appendAnalysisLog(`(${id}) 대본 저장 ${transcript.length}자`);
-      try { await refreshRowsByIds([id]); } catch {}
-        } catch (e) {
-      const emsg = (e?.message || e).toString();
-      const isNoCaption = /\b404\b|no_transcript_or_stt|caption not found/i.test(emsg);
-      ylog(`(${id}) transcript error: ${emsg}`);
-      appendAnalysisLog(`(${id}) ${isNoCaption ? '추출할 대본 없음' : '대본 오류'}: ${emsg}`);
-      if (canFlag && /404|no_transcript_or_stt/i.test(emsg)) {
-        try { await supabase.from('videos').update({ transcript_unavailable: true, last_modified: Date.now() }).eq('id', id); ylog(`(${id}) flagged transcript_unavailable`); try { await refreshRowsByIds([id]); } catch {} } catch {}
-      }
-      throw e;
-    }
-    // 진행 체크포인트 저장(마지막 성공/스킵 id와 인덱스)
-    processed++;
-    checkpointId = await saveTranscriptCheckpoint(checkpointId, id, processed);
-  };
-  // 동시성: 서버/대역폭 상황에 따라 조절, 체크포인트는 onItemDone에서 처리
-  const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, {
-    concurrency: conc,
-    onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); },
-    onItemDone: async (id, ok) => {
-      try { checkpointId = await saveTranscriptCheckpoint(checkpointId, id, ++processed); } catch {}
-      // 부분 UI 갱신(성능 위해 20개 단위로)
-      if (processed % 20 === 0) { try { await refreshRowsByIds(ids.slice(Math.max(0, processed-20), processed)); } catch {} }
-      // 메모리/성능 유지: 주기적으로 preById/idMeta 맵을 얕게 압축
-      if (processed % 500 === 0) {
-        try {
-          const keys = Array.from(idMeta.keys());
-          const keep = new Set(keys.slice(Math.max(0, keys.length - 2000))); // 최근 2000개만 유지
-          for (const k of keys) { if (!keep.has(k)) idMeta.delete(k); }
-          // 강제 GC 힌트용 no-op
-        } catch {}
-      }
-    }
-  });
-  youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-    await fetchAndDisplayData();
-});
-
-// --- 자동 재시작(체크포인트 이어받기) 유틸 ---
-async function autoRestartFullTranscript(intervalMs = 10 * 60 * 1000) {
-  try {
-    // 진행 중이 아니면 실행
-    if (ABORT_CURRENT) return;
-    // 체크포인트가 존재하고 일정 시간 경과 시 자동 재개
-    const ck = await loadTranscriptCheckpoint();
-    if (!ck || !ck.content) return;
-    // 간단: 클릭 핸들러 재호출 대신 내부 로직 재사용을 위해 버튼 이벤트를 트리거
-    // 안전: 사용자 동작 없을 때만
-    const now = Date.now();
-    const lastIndex = Number(ck.content.last_index || 0);
-    if (lastIndex >= 0) {
-      try { document.getElementById('yt-transcript-all-btn')?.click(); } catch {}
-    }
-  } catch {}
-  finally {
-    setTimeout(() => autoRestartFullTranscript(intervalMs), intervalMs);
-  }
-}
-
-// 페이지 진입 후 일정 간격으로 자동 재시작 타이머 시작(옵션)
-try { setTimeout(() => autoRestartFullTranscript(12 * 60 * 1000), 12 * 60 * 1000); } catch {}
-
-ytViewsAllBtn?.addEventListener('click', async () => {
-  const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
-  if (!BULK_SILENT) {
-    if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
-  }
-  youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
-  showAnalysisBanner('전체 조회수 갱신 시작');
-        const ids = currentData.map(v => v.id);
-  const onlyMissing = !!ytViewsOnlyMissing?.checked;
-  const excludeMin = Math.max(0, Number(ytViewsExcludeMin?.value || 0));
-  const cutoffMs = excludeMin > 0 ? (Date.now() - excludeMin * 60 * 1000) : 0;
-  const worker = async (id, key) => {
-    const { data: row, error } = await supabase.from('videos').select('youtube_url,views_numeric,views_baseline_numeric,views,views_last_checked_at').eq('id', id).single();
-    if (error) { ylog(`(${id}) fetch row error: ${error.message}`); throw error; }
-    if (onlyMissing && row?.views_numeric) { ylog(`(${id}) skip (has views_numeric)`); return; }
-    if (cutoffMs && Number(row?.views_last_checked_at || 0) > cutoffMs) { ylog(`(${id}) skip (recently updated)`); return; }
-    const url = row?.youtube_url || '';
-    const u = new URL(url);
-    let videoId = u.searchParams.get('v') || '';
-    if (!videoId && u.hostname.includes('youtu.be')) videoId = u.pathname.split('/').pop();
-    if (!videoId && u.pathname.includes('/shorts/')) videoId = u.pathname.split('/').pop();
-    if (!videoId) { ylog(`(${id}) skip (bad youtube_url)`); throw new Error('no videoId'); }
-    let current, likes, comments;
-    try {
-      const stats = await withRetry(() => fetchYoutubeStats(videoId, key), { retries: 3, baseDelayMs: 600 });
-      current = stats.views; likes = stats.likes; comments = stats.comments;
-        } catch (e) {
-      ylog(`(${id}) stats error: ${e?.message || e}`);
-      throw e;
-    }
-    const baseline = Number(row?.views_baseline_numeric || 0);
-    const prevCurrent = Number(row?.views_numeric || 0);
-    const prevCheckedAt = Number(row?.views_last_checked_at || 0) || null;
-    const patch = { 
-      views_numeric: current,
-      likes_numeric: likes,
-      comments_total: comments,
-      views_last_checked_at: Date.now()
-    };
-    if (prevCurrent > 0) {
-      patch.views_prev_numeric = prevCurrent;
-      if (prevCheckedAt) patch.views_prev_checked_at = prevCheckedAt;
-    }
-    if (!baseline) patch.views_baseline_numeric = current;
-    try { await supabase.from('videos').update(patch).eq('id', id); ylog(`(${id}) stats saved (views=${current}, baseline=${baseline||current}, likes=${likes}, comments=${comments})`); }
-    catch (e) { ylog(`(${id}) save error: ${e?.message || e}`); throw e; }
-    appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
-  };
-  const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
-  youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-    await fetchAndDisplayData();
-});
-
-// ---------- Settings (local) ----------
-function restoreLocalSettings() {
-  try { const key = localStorage.getItem('gemini_api_key_secure') || ''; if (key) geminiKeyInput.value = key; } catch {}
-  try { const url = localStorage.getItem('transcript_server_url') || ''; if (url) transcriptServerInput.value = url; } catch {}
-  try { const yt = localStorage.getItem('youtube_api_keys_list') || ''; if (ytKeysTextarea) ytKeysTextarea.value = yt; } catch {}
-}
-if (saveGeminiKeyBtn) saveGeminiKeyBtn.addEventListener('click', () => { try { localStorage.setItem('gemini_api_key_secure', geminiKeyInput.value.trim()); geminiKeyStatus.textContent = '저장되었습니다.'; } catch {} });
-if (testGeminiKeyBtn) testGeminiKeyBtn.addEventListener('click', async () => { const key = geminiKeyInput.value.trim() || localStorage.getItem('gemini_api_key_secure') || ''; if (!key) { geminiKeyStatus.textContent = '키를 입력하세요.'; return; } geminiKeyStatus.textContent = '테스트 중...'; try { const res = await fetch('https://generativelanguage.googleapis.com/v1/models?key=' + encodeURIComponent(key)); geminiKeyStatus.textContent = res.ok ? '키 통신 성공' : 'HTTP ' + res.status; } catch (e) { geminiKeyStatus.textContent = '테스트 실패: ' + (e?.message || e); } });
-if (saveTranscriptServerBtn) saveTranscriptServerBtn.addEventListener('click', async () => { const url = (transcriptServerInput.value || '').trim(); if (!url) { transcriptServerStatus.textContent = '서버 주소를 입력하세요.'; return; } try { localStorage.setItem('transcript_server_url', url); const res = await fetch(url.replace(/\/$/, '') + '/health'); transcriptServerStatus.textContent = res.ok ? '서버 온라인' : '응답 오류'; } catch (e) { transcriptServerStatus.textContent = '연결 실패: ' + (e?.message || e); } });
-if (ytKeysSaveBtn) ytKeysSaveBtn.addEventListener('click', async () => { try { localStorage.setItem('youtube_api_keys_list', ytKeysTextarea.value || ''); ytKeysStatus.textContent = '저장되었습니다.'; } catch (e) { ytKeysStatus.textContent = '저장 실패: ' + (e?.message || e); } });
-if (ytKeysTestBtn) ytKeysTestBtn.addEventListener('click', async () => { ytKeysStatus.textContent = '테스트 중...'; const keys = (ytKeysTextarea.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean); if (!keys.length) { ytKeysStatus.textContent = '키를 입력하세요.'; return; } try { const key = keys[0]; const res = await fetch('https://www.googleapis.com/youtube/v3/videos?part=statistics&id=dQw4w9WgXcQ&key=' + encodeURIComponent(key)); ytKeysStatus.textContent = res.ok ? '키 통신 성공' : 'HTTP ' + res.status; } catch (e) { ytKeysStatus.textContent = '테스트 실패: ' + (e?.message || e); } });
-// ---------- Reset transcript/analysis for selected ----------
-resetTranscriptSelectedBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('초기화할 항목을 선택하세요.'); return; }
-  const ok = confirm(`선택된 ${ids.length}개의 대본/분석을 초기화할까요? 이 작업은 되돌릴 수 없습니다.`);
-  if (!ok) return;
-  const BATCH = 500; let cleared = 0;
-  const patch = {
-    transcript_text: '',
-    analysis_transcript_len: 0,
-    transcript_unavailable: false,
-    material: null,
-    hooking: null,
-    narrative_structure: null,
-    dopamine_graph: null,
-    last_modified: Date.now()
-  };
-  try {
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const slice = ids.slice(i, i + BATCH);
-      const rows = slice.map(id => ({ id, ...patch }));
-      const { error } = await supabase.from('videos').upsert(rows, { onConflict: 'id' });
-      if (error) throw error;
-      cleared += slice.length;
-      analysisBannerText && (analysisBannerText.textContent = `초기화 진행 ${cleared}/${ids.length}`);
-    }
-    appendAnalysisLog(`선택 초기화 완료: ${cleared}`);
-    await refreshRowsByIds(ids);
-  } catch (e) {
-    appendAnalysisLog(`초기화 실패: ${e?.message || e}`);
-  }
-});
-
-// --- Optional: 분석 필드만 초기화(기승전결/후킹/패턴 4종 + 메인아이디어/핵심소재)
-// 트리거는 admin.html 새 버튼에서 연결 가능: id="reset-analysis-fields-btn"
-document.getElementById('reset-analysis-fields-btn')?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('초기화할 항목을 선택하세요.'); return; }
-  const ok = confirm(`선택된 ${ids.length}개의 분석 필드(기승전결/후킹/반복패턴/감정몰입/정보전달/핵심소재 + 소재요약/material + 도파민그래프)를 비웁니다. 계속할까요?`);
-  if (!ok) return;
-  const BATCH = 500; let cleared = 0;
-  const patch = {
-    material: null,
-    material_main_idea: null,
-    material_core_materials: null,
-    material_lang_patterns: null,
-    material_emotion_points: null,
-    material_info_delivery: null,
-    hooking: null,
-    narrative_structure: null,
-    dopamine_graph: null,
-    last_modified: Date.now()
-  };
-  try {
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const slice = ids.slice(i, i + BATCH);
-      const rows = slice.map(id => ({ id, ...patch }));
-      const { error } = await supabase.from('videos').upsert(rows, { onConflict: 'id' });
-      if (error) throw error;
-      cleared += slice.length;
-      analysisBannerText && (analysisBannerText.textContent = `분석 필드 초기화 ${cleared}/${ids.length}`);
-    }
-    appendAnalysisLog(`분석 필드 초기화 완료: ${cleared}`);
-    await refreshRowsByIds(ids);
-  } catch (e) {
-    appendAnalysisLog(`분석 필드 초기화 실패: ${e?.message || e}`);
-  }
-});
-
-
-// ---------- Utils ----------
-function stableHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; } return Math.abs(h).toString(36); }
-function normalizeDate(v) { if (!v) return ''; if (typeof v === 'number') { const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + v * 86400000; try { return new Date(ms).toISOString().slice(0,10); } catch { return String(v); } } const s = String(v).trim().replace(/[./]/g, '-'); if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) { try { return new Date(s).toISOString().slice(0,10); } catch { return s; } } return s; }
-function normalizeUpdateDate(v) { if (!v) return ''; try { const s = String(v).trim(); if (!s) return ''; // 허용: YYYY-MM-DD, YYYY.MM.DD, M/D, M월 D일, 10월 6일 등
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2,'0');
-  const fmtLocal = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
-  // Excel serial -> 날짜로 간주 (정수/실수)
-  if (!isNaN(Number(s)) && s.replace(/\s/g,'') === String(Number(s))) {
-    const epoch = new Date(1899, 11, 30).getTime(); const ms = epoch + Number(s) * 86400000; return fmtLocal(new Date(ms));
-  }
-  const s1 = s.replace(/\s+/g,' ').replace(/[.]/g,'-').replace(/[\/]/g,'-');
-  // YYYY-MM-DD
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s1)) { const dt = new Date(s1); if (!isNaN(dt.getTime())) return fmtLocal(dt); }
-  // M-D -> 올해로 보정
-  if (/^\d{1,2}-\d{1,2}$/.test(s1)) { const [m,d] = s1.split('-').map(n=>parseInt(n,10)); const dt = new Date(now.getFullYear(), m-1, d); return fmtLocal(dt); }
-  // 한국어: 10월 6일
-  const m = s.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-  if (m) { const mm = parseInt(m[1],10), dd = parseInt(m[2],10); const dt = new Date(now.getFullYear(), mm-1, dd); return fmtLocal(dt); }
-  // 마지막 시도: Date 파서
-  const dt = new Date(s);
-  if (!isNaN(dt.getTime())) return fmtLocal(dt);
-        return '';
-} catch { return ''; } }
-function formatDateTimeLocal(d) { const pad = (n) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
-function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-
-// bigint 컬럼 안전 변환
-function toBigIntSafe(value) {
-  const raw = (value ?? '').toString().trim();
-  if (!raw) return 0;
-  const digits = raw.replace(/[^0-9]/g, '');
-  if (!digits) return 0;
-  // supabase-js는 JS number를 그대로 전송하므로 bigint 컬럼에는 정수 문자열을 사용해도 허용됩니다.
-  try { return BigInt(digits).toString(); } catch { return 0; }
-}
-
-// ---------- Transcript helpers ----------
-function hasNonEmptyTranscript(val) {
-  if (val == null) return false;
-  const s = String(val).trim();
-  if (!s) return false;
-  // treat very short tokens as empty noise
-  return s.replace(/\s+/g,' ').length >= 2;
-}
-
-function sortIdsAsc(arr) {
-  return arr.slice().sort((a,b) => {
-    const na = Number(a), nb = Number(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-    return String(a).localeCompare(String(b));
-  });
-}
-
-async function loadTranscriptCheckpoint() {
-  try {
-    const { data } = await supabase.from('schedules').select('id, content, created_at').order('created_at', { ascending: false }).limit(50);
-    const rows = Array.isArray(data) ? data : [];
-    for (const r of rows) {
-      try {
-        const c = typeof r.content === 'string' ? JSON.parse(r.content) : (r.content || {});
-        if (c && c.type === 'transcript_checkpoint' && c.scope === 'all') return { id: r.id, content: c };
-      } catch {}
-    }
-  } catch {}
-  return null;
-}
-
-async function saveTranscriptCheckpoint(checkpointId, lastId, lastIndex) {
-  const cfg = { type: 'transcript_checkpoint', scope: 'all', last_id: lastId, last_index: lastIndex, updated_at: new Date().toISOString() };
-  if (checkpointId) {
-    try { await supabase.from('schedules').update({ content: JSON.stringify(cfg) }).eq('id', checkpointId); return checkpointId; } catch { return checkpointId; }
-        } else {
-    try { const { data } = await supabase.from('schedules').insert({ content: JSON.stringify(cfg) }).select('id').single(); return data?.id || null; } catch { return null; }
-  }
-}
+        return jsonify({ 'ok': True, 'env': info })
+    except Exception as e:
+        return jsonify({ 'ok': False, 'error': str(e) }), 500
 
 
