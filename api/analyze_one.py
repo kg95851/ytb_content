@@ -122,7 +122,7 @@ if _load_sb is None or _analyze_video is None:
                         continue
                     url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                     try:
-                        res = requests.post(url, json=payload, timeout=60)  # Reduce timeout for faster failure detection
+                        res = requests.post(url, json=payload, timeout=120)  # Increased timeout for complete responses
                         if res.status_code == 429:
                             # Rate limited - try next key
                             errors.append(f"{api_ver}/{model}:429-key{key_attempt+1}/{total_keys}")
@@ -422,12 +422,14 @@ if _load_sb is None or _analyze_video is None:
         import time
         
         # Single combined prompt for all analyses (detailed for quality)
-        combined_prompt = """영상 대본을 정밀 분석하여 아래 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON만:
+        combined_prompt = """영상 대본을 정밀 분석하여 아래 JSON 형식으로 정확히 출력하세요. 
+반드시 기승전결 4개 파트를 모두 포함해야 합니다. JSON만 출력:
 {
   "material": "영상의 핵심 소재와 주제를 구체적으로 3-5문장으로 요약. 등장인물, 상황, 주요 사건을 포함",
   "hooking": "첫 1-2문장에서 시청자 호기심을 유발하는 구체적 요소와 기법을 1문장으로 설명",
-  "structure": "기: (구체적 도입 상황), 승: (갈등/사건 전개), 전: (반전/클라이맥스), 결: (해결/마무리)"
+  "structure": "기: (구체적 도입 상황 설명), 승: (갈등이나 사건이 전개되는 부분), 전: (반전이나 클라이맥스 부분), 결: (해결이나 마무리 부분)"
 }
+중요: structure는 반드시 기, 승, 전, 결 4개 모두 작성하세요.
 
 대본 분석:"""
         
@@ -454,7 +456,12 @@ if _load_sb is None or _analyze_video is None:
                     parsed = json.loads(resp_clean)
                     results['material'] = parsed.get('material', '')[:2000] or '소재 분석 실패'
                     results['hooking'] = parsed.get('hooking', '')[:1000] or '후킹 분석 실패'
-                    results['structure'] = parsed.get('structure', '')[:1000] or '구조 분석 실패'
+                    # Increase structure field limit to prevent truncation
+                    structure = parsed.get('structure', '')
+                    if structure and all(part in structure for part in ['기:', '승:', '전:', '결:']):
+                        results['structure'] = structure[:2000]  # Increased limit
+                    else:
+                        results['structure'] = structure[:2000] if structure else '구조 분석 실패'
                 except Exception as e:
                     # If JSON parsing fails, try to extract manually
                     print(f"JSON parsing failed: {e}, trying manual extraction")
@@ -576,7 +583,7 @@ if _load_sb is None or _analyze_video is None:
             'material_emotion_points': material_sections.get('emotion_points') or None,
             'material_info_delivery': material_sections.get('info_delivery') or None,
             'hooking': results['hooking'][:2000] if results['hooking'] else None,
-            'narrative_structure': results['structure'][:4000] if results['structure'] else None,
+            'narrative_structure': results['structure'][:4000] if results['structure'] else None,  # Enough space for full 기승전결
             'dopamine_graph': dopamine_graph,
             'analysis_transcript_len': len(transcript),
             'last_modified': int(time.time()*1000)
