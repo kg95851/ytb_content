@@ -121,7 +121,7 @@ let LARGE_THRESHOLD = 600;
 // 전체 작업 시 확인창 비활성화(자동 진행)
 let BULK_SILENT = true;
 let CONC_NORMAL = 6;
-let CONC_LARGE = 8;
+let CONC_LARGE = 10;
 let SEQ_ANALYSIS = true; // 기본: 순차 실행
 
 function loadPerfSettings() {
@@ -1416,9 +1416,43 @@ async function runAnalysisForIds(ids, opts = {}) {
     const pre = preById.get(id);
     return !(pre && pre.transcript_unavailable === true);
   });
-  // 동시 실행: 순차 옵션이 켜져있으면 1개씩, 아니면 보수적으로 2개까지만
-  // Gemini API 안정성을 위해 동시성을 제한
-  const conc = SEQ_ANALYSIS ? 1 : Math.min(2, (opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
+  // 동시 실행: API 키 개수에 따라 동시성 자동 조정
+  // 각 키는 분당 60개 제한, 안전 마진 50% 적용
+  let keyCount = 1;
+  try {
+    // 환경변수에서 실제 키 개수 추정
+    const multiKeys = process.env?.GEMINI_API_KEYS || '';
+    if (multiKeys) {
+      keyCount = multiKeys.split(',').filter(k => k.trim()).length;
+    } else {
+      // 번호 키 카운트 (1~100)
+      for (let i = 1; i <= 100; i++) {
+        if (process.env?.[`GEMINI_API_KEY${i}`]) keyCount++;
+        else break;
+      }
+    }
+  } catch {
+    // 클라이언트에서는 정확한 키 개수를 알 수 없으므로 보수적으로 설정
+    keyCount = 3; // 기본값
+  }
+  
+  // 키 개수별 권장 동시성 (안전 마진 포함)
+  let recommendedConc = 1;
+  if (keyCount >= 20) {
+    recommendedConc = 6; // 20개 이상: 6 동시
+  } else if (keyCount >= 15) {
+    recommendedConc = 5; // 15-19개: 5 동시
+  } else if (keyCount >= 10) {
+    recommendedConc = 4; // 10-14개: 4 동시
+  } else if (keyCount >= 5) {
+    recommendedConc = 3; // 5-9개: 3 동시
+  } else if (keyCount >= 3) {
+    recommendedConc = 2; // 3-4개: 2 동시
+  }
+  
+  // 최종 동시성 결정
+  const conc = SEQ_ANALYSIS ? 1 : Math.min(recommendedConc, (opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
+  console.log(`Using concurrency ${conc} for estimated ${keyCount} API keys`);
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1563,8 +1597,8 @@ runCommentsSelectedBtn?.addEventListener('click', async () => {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `댓글 수집 시작... (${ids.length}개)`; analysisStatus.style.color = '';
   showAnalysisBanner(`댓글 수집 시작 (${ids.length}개)`);
   let done = 0;
-  for (const id of ids) {
-    try {
+    for (const id of ids) {
+        try {
       const { data: row } = await supabase.from('videos').select('youtube_url,title').eq('id', id).single();
       const vid = extractVideoIdFromUrl(row?.youtube_url || ''); if (!vid) { appendAnalysisLog(`(${id}) YouTube URL 없음`); continue; }
       const comments = await fetchYoutubeComments(vid, want, keys);
@@ -1758,8 +1792,8 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
           const keep = new Set(keys.slice(Math.max(0, keys.length - 2000))); // 최근 2000개만 유지
           for (const k of keys) { if (!keep.has(k)) idMeta.delete(k); }
           // 강제 GC 힌트용 no-op
-        } catch {}
-      }
+            } catch {}
+        }
     }
   });
   youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
