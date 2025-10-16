@@ -1449,9 +1449,13 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (keyData && keyData.key_count) {
         keyCount = keyData.key_count;
         console.log(`서버에서 감지한 API 키: ${keyCount}개`);
+        if (keyData.found_keys && keyData.found_keys.length > 0) {
+          console.log(`발견된 키: ${keyData.found_keys.join(', ')}`);
+        }
         if (keyData.gemini_env_vars && keyData.gemini_env_vars.length > 0) {
           console.log(`GEMINI 환경변수 목록: ${keyData.gemini_env_vars.join(', ')}`);
         }
+        console.log(`전체 환경변수 개수: ${keyData.total_env_vars}`);
       }
     } else {
       console.log('API 키 개수 확인 실패 (HTTP ' + keyRes.status + ')');
