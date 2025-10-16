@@ -421,17 +421,21 @@ if _load_sb is None or _analyze_video is None:
         # Combine all analyses into ONE LLM call to reduce API calls
         import time
         
-        # Single combined prompt for all analyses (simplified for speed)
-        combined_prompt = """JSON만 출력:
-{"material":"소재 3줄 요약","hooking":"후킹 1줄","structure":"기:(시작),승:(전개),전:(전환),결:(결말)"}
+        # Single combined prompt for all analyses (detailed for quality)
+        combined_prompt = """영상 대본을 정밀 분석하여 아래 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON만:
+{
+  "material": "영상의 핵심 소재와 주제를 구체적으로 3-5문장으로 요약. 등장인물, 상황, 주요 사건을 포함",
+  "hooking": "첫 1-2문장에서 시청자 호기심을 유발하는 구체적 요소와 기법을 1문장으로 설명",
+  "structure": "기: (구체적 도입 상황), 승: (갈등/사건 전개), 전: (반전/클라이맥스), 결: (해결/마무리)"
+}
 
-대본:"""
+대본 분석:"""
         
         try:
             # Single API call for all three analyses
-            # Balanced delay for stability vs speed
-            time.sleep(1.0)  # Standard delay between requests to avoid rate limits
-            combined_resp = _call_gemini(combined_prompt, tshort[:4000])  # Optimal input size
+            # Longer delay for better quality
+            time.sleep(1.5)  # Increased delay for stability with lower concurrency
+            combined_resp = _call_gemini(combined_prompt, tshort[:6000])  # More context for better analysis
             
             # Parse combined response
             if combined_resp:
@@ -537,7 +541,7 @@ if _load_sb is None or _analyze_video is None:
         # Ensure all arrays have actual content
         if not material_sections.get('lang_patterns') or material_sections['lang_patterns'] == ['반복 표현 분석 중', '패턴 추출 중']:
             try:
-                resp = _call_gemini("반복되는 언어 패턴 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                resp = _call_gemini("대본에서 반복되는 구체적인 언어 패턴, 말투, 표현 3-5개를 쉼표로 구분해 나열. 예: '~잖아요', '그런데 ~', '이게 ~':", tshort[:3000])
                 if resp:
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
@@ -547,7 +551,7 @@ if _load_sb is None or _analyze_video is None:
                 
         if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
             try:
-                resp = _call_gemini("감정 몰입 포인트 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                resp = _call_gemini("시청자의 감정을 자극하는 구체적 대사나 상황 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
                 if resp:
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
@@ -557,7 +561,7 @@ if _load_sb is None or _analyze_video is None:
                 
         if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
             try:
-                resp = _call_gemini("정보 전달 특징 2개를 쉼표로 구분해 나열:", tshort[:2000])
+                resp = _call_gemini("영상의 정보 전달 방식 특징 (대화체, 설명, 편집 스타일 등) 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
                 if resp:
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
