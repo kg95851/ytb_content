@@ -442,6 +442,12 @@ if _load_sb is None or _analyze_video is None:
             time.sleep(base_delay + jitter)  # 2-3 seconds total
             combined_resp = _call_gemini(combined_prompt, tshort[:6000])  # More context for better analysis
             
+            # Debug: Log the raw response length
+            if combined_resp:
+                print(f"LLM response length: {len(combined_resp)} chars")
+                if len(combined_resp) < 500:
+                    print(f"Warning: Short response - {combined_resp[:200]}")
+            
             # Parse combined response
             if combined_resp:
                 # Clean response to extract JSON
@@ -459,12 +465,19 @@ if _load_sb is None or _analyze_video is None:
                     parsed = json.loads(resp_clean)
                     results['material'] = parsed.get('material', '')[:2000] or '소재 분석 실패'
                     results['hooking'] = parsed.get('hooking', '')[:1000] or '후킹 분석 실패'
-                    # Increase structure field limit to prevent truncation
+                    # Get full structure without truncation
                     structure = parsed.get('structure', '')
-                    if structure and all(part in structure for part in ['기:', '승:', '전:', '결:']):
-                        results['structure'] = structure[:2000]  # Increased limit
+                    # Ensure we have the complete structure with all 4 parts
+                    if structure:
+                        # Check if it's already complete
+                        if all(part in structure for part in ['기:', '승:', '전:', '결:']):
+                            results['structure'] = structure[:4000]  # Much larger limit
+                        else:
+                            # Structure might be truncated, try to reconstruct
+                            print(f"Incomplete structure detected: {structure[:100]}...")
+                            results['structure'] = structure[:4000] if structure else '구조 분석 실패'
                     else:
-                        results['structure'] = structure[:2000] if structure else '구조 분석 실패'
+                        results['structure'] = '구조 분석 실패'
                 except Exception as e:
                     # If JSON parsing fails, try to extract manually
                     print(f"JSON parsing failed: {e}, trying manual extraction")
@@ -488,12 +501,23 @@ if _load_sb is None or _analyze_video is None:
                                 hook_end = combined_resp.find('"', hook_end + 1)
                             results['hooking'] = combined_resp[hook_start:hook_end] if hook_end > hook_start else '후킹 추출 실패'
                             
-                            # Extract structure
+                            # Extract structure - need to handle the entire string with colons
                             struct_start = combined_resp.find('"structure"') + len('"structure"')
                             struct_start = combined_resp.find('"', struct_start) + 1
-                            struct_end = combined_resp.find('"', struct_start)
-                            while struct_end > 0 and combined_resp[struct_end-1] == '\\':
-                                struct_end = combined_resp.find('"', struct_end + 1)
+                            # Find the closing quote, but handle escaped quotes and multi-line content
+                            struct_end = struct_start
+                            while struct_end < len(combined_resp):
+                                struct_end = combined_resp.find('"', struct_end)
+                                if struct_end == -1:
+                                    struct_end = len(combined_resp)
+                                    break
+                                # Check if this quote is escaped
+                                if combined_resp[struct_end-1] != '\\':
+                                    # Also check if we have all 4 parts
+                                    temp_str = combined_resp[struct_start:struct_end]
+                                    if all(part in temp_str for part in ['기:', '승:', '전:', '결:']):
+                                        break
+                                struct_end += 1
                             results['structure'] = combined_resp[struct_start:struct_end] if struct_end > struct_start else '구조 추출 실패'
                         except:
                             # Last resort: use the full response
