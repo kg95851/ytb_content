@@ -20,6 +20,9 @@ if _load_sb is None or _analyze_video is None:
         create_client = None
 
     import requests
+    
+    # Global key rotation state
+    _gemini_key_index = 0
 
     def _load_sb():  # type: ignore
         if create_client is None:
@@ -29,11 +32,41 @@ if _load_sb is None or _analyze_video is None:
         if not url or not key:
             raise RuntimeError('Missing SUPABASE_URL or SUPABASE_*_KEY env')
         return create_client(url, key)
+    
+    def _get_next_gemini_key():
+        global _gemini_key_index
+        # Get multiple keys from environment
+        keys = []
+        
+        # Try comma-separated first (GEMINI_API_KEYS="key1,key2,key3")
+        multi_keys = os.getenv('GEMINI_API_KEYS')
+        if multi_keys:
+            keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
+        
+        # Also try numbered keys (GEMINI_API_KEY1, GEMINI_API_KEY2, etc.)
+        if not keys:
+            for i in range(1, 10):
+                key = os.getenv(f'GEMINI_API_KEY{i}')
+                if key:
+                    keys.append(key)
+        
+        # Fall back to single key
+        if not keys:
+            single_key = os.getenv('GEMINI_API_KEY')
+            if single_key:
+                keys = [single_key]
+        
+        if not keys:
+            raise RuntimeError('No GEMINI_API_KEY found')
+        
+        # Rotate through keys
+        key = keys[_gemini_key_index % len(keys)]
+        _gemini_key_index += 1
+        print(f"Using Gemini key #{(_gemini_key_index % len(keys)) + 1} of {len(keys)}")
+        return key, len(keys)
 
     def _call_gemini(system_prompt: str, user_content: str) -> str:
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            raise RuntimeError('GEMINI_API_KEY not set')
+        import time
         prefer = os.getenv('GEMINI_MODEL')
         candidates = [
             *( [prefer] if prefer else [] ),
@@ -49,26 +82,63 @@ if _load_sb is None or _analyze_video is None:
             'generationConfig': { 'temperature': 0.3 }
         }
         base = 'https://generativelanguage.googleapis.com'
-        errors = []
-        for api_ver in ('v1', 'v1beta'):
-            for model in candidates:
-                if not model:
-                    continue
-                url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
-                try:
-                    res = requests.post(url, json=payload, timeout=240)
-                    if res.status_code == 404:
-                        errors.append(f"{api_ver}/{model}:404")
+        all_errors = []
+        
+        # Try with multiple keys (up to 3 attempts with different keys)
+        max_key_attempts = 3
+        for key_attempt in range(max_key_attempts):
+            try:
+                api_key, total_keys = _get_next_gemini_key()
+            except Exception as e:
+                # If no keys available, use the error from key getter
+                raise RuntimeError(str(e))
+            
+            errors = []
+            
+            # Add delay between API calls to avoid rate limiting
+            if key_attempt > 0:
+                time.sleep(10)  # Wait 10 seconds before trying next key
+            else:
+                time.sleep(2)  # Initial 2 second delay
+            
+            for api_ver in ('v1', 'v1beta'):
+                for model in candidates:
+                    if not model:
                         continue
-                    res.raise_for_status()
-                    data = res.json()
-                    text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-                    if text:
-                        return text
-                except Exception as e:
-                    errors.append(f"{api_ver}/{model}:{str(e)[:80]}")
-                    continue
-        raise RuntimeError('Gemini request failed: ' + '; '.join(errors))
+                    url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
+                    try:
+                        res = requests.post(url, json=payload, timeout=240)
+                        if res.status_code == 429:
+                            # Rate limited - try next key
+                            errors.append(f"{api_ver}/{model}:429-key{key_attempt+1}/{total_keys}")
+                            break  # Break inner loop to try next key
+                        if res.status_code == 404:
+                            errors.append(f"{api_ver}/{model}:404")
+                            continue
+                        res.raise_for_status()
+                        data = res.json()
+                        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                        if text:
+                            return text
+                    except Exception as e:
+                        error_str = str(e)[:80]
+                        errors.append(f"{api_ver}/{model}:{error_str}")
+                        if '429' in error_str or 'Too Many Requests' in error_str:
+                            # Rate limited - try next key
+                            break
+                        continue
+                
+                # If we got rate limited with this key, break to try next key
+                if any('429' in e for e in errors):
+                    break
+            
+            all_errors.extend(errors)
+            
+            # If we didn't get rate limited, no point trying more keys
+            if not any('429' in e for e in errors):
+                break
+        
+        raise RuntimeError('Gemini request failed: ' + '; '.join(all_errors))
 
     def _persona() -> str:
         return (
@@ -333,27 +403,36 @@ if _load_sb is None or _analyze_video is None:
         # Direct LLM calls without strict validation - just get the response
         results = { 'material': '', 'hooking': '', 'structure': '' }
         
-        # Sequential calls with simpler prompts
+        # Sequential calls with delays between each
+        import time
+        
+        # Material
         try:
-            # Material - simplified prompt
+            time.sleep(1)  # Delay before first call
             simple_mat = "이 영상의 핵심 소재를 3줄로 요약하세요:\n\n" + tshort[:3000]
             mat_resp = _call_gemini(simple_mat, '')
             results['material'] = mat_resp.strip() if mat_resp else '영상 소재 분석'
         except Exception as e:
             print(f"Material LLM error: {e}")
             results['material'] = f'소재 분석 오류: {str(e)[:100]}'
+        
+        # Wait between calls to avoid rate limiting
+        time.sleep(5)  # 5 second delay between different prompt types
             
+        # Hooking
         try:
-            # Hooking - simplified
             simple_hook = "첫 문장의 후킹 포인트를 1줄로 설명하세요:\n\n" + (hook_input or tshort[:500])
             hook_resp = _call_gemini(simple_hook, '')
             results['hooking'] = hook_resp.strip() if hook_resp else '후킹 분석'
         except Exception as e:
             print(f"Hooking LLM error: {e}")
             results['hooking'] = f'후킹 분석 오류: {str(e)[:100]}'
+        
+        # Wait between calls
+        time.sleep(5)  # 5 second delay
             
+        # Structure
         try:
-            # Structure - simplified
             simple_struct = "영상 구조를 기승전결 4줄로 요약하세요:\n\n" + tshort[:4000]
             struct_resp = _call_gemini(simple_struct, '')
             results['structure'] = struct_resp.strip() if struct_resp else '구조 분석'
