@@ -42,22 +42,34 @@ if _load_sb is None or _analyze_video is None:
         multi_keys = os.getenv('GEMINI_API_KEYS')
         if multi_keys:
             keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
+            print(f"Found {len(keys)} keys from GEMINI_API_KEYS")
         
         # Also try numbered keys (GEMINI_API_KEY1, GEMINI_API_KEY2, etc.)
         if not keys:
             for i in range(1, 101):
                 key = os.getenv(f'GEMINI_API_KEY{i}')
                 if key:
-                    keys.append(key)
+                    # Remove quotes if present (common mistake)
+                    key = key.strip().strip('"').strip("'")
+                    if key and key.startswith('AIza'):  # Valid Gemini key format
+                        keys.append(key)
+                        print(f"Found GEMINI_API_KEY{i}")
+            if keys:
+                print(f"Total {len(keys)} numbered keys found")
         
         # Fall back to single key
         if not keys:
             single_key = os.getenv('GEMINI_API_KEY')
             if single_key:
+                single_key = single_key.strip().strip('"').strip("'")
                 keys = [single_key]
+                print("Using single GEMINI_API_KEY")
         
         if not keys:
-            raise RuntimeError('No GEMINI_API_KEY found')
+            # Debug: show what environment variables exist
+            env_vars = [k for k in os.environ.keys() if 'GEMINI' in k]
+            print(f"Available GEMINI env vars: {env_vars}")
+            raise RuntimeError('No valid GEMINI_API_KEY found')
         
         # Rotate through keys
         key = keys[_gemini_key_index % len(keys)]
