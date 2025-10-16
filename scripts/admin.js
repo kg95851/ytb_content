@@ -1416,8 +1416,9 @@ async function runAnalysisForIds(ids, opts = {}) {
     const pre = preById.get(id);
     return !(pre && pre.transcript_unavailable === true);
   });
-  // 동시 실행: 순차 옵션이 켜져있으면 1개씩 처리, 아니면 설정값 사용
-  const conc = SEQ_ANALYSIS ? 1 : ((opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
+  // 동시 실행: 순차 옵션이 켜져있으면 1개씩, 아니면 보수적으로 2개까지만
+  // Gemini API 안정성을 위해 동시성을 제한
+  const conc = SEQ_ANALYSIS ? 1 : Math.min(2, (opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
