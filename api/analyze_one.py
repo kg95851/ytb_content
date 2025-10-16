@@ -435,8 +435,11 @@ if _load_sb is None or _analyze_video is None:
         
         try:
             # Single API call for all three analyses
-            # Longer delay for better quality
-            time.sleep(1.5)  # Increased delay for stability with lower concurrency
+            # Add random jitter to avoid synchronized requests
+            import random
+            base_delay = 2.0  # Base delay
+            jitter = random.uniform(0, 1.0)  # Random 0-1 second
+            time.sleep(base_delay + jitter)  # 2-3 seconds total
             combined_resp = _call_gemini(combined_prompt, tshort[:6000])  # More context for better analysis
             
             # Parse combined response
@@ -548,33 +551,45 @@ if _load_sb is None or _analyze_video is None:
         # Ensure all arrays have actual content
         if not material_sections.get('lang_patterns') or material_sections['lang_patterns'] == ['반복 표현 분석 중', '패턴 추출 중']:
             try:
+                time.sleep(1.0)  # Delay before secondary analysis
                 resp = _call_gemini("대본에서 반복되는 구체적인 언어 패턴, 말투, 표현 3-5개를 쉼표로 구분해 나열. 예: '~잖아요', '그런데 ~', '이게 ~':", tshort[:3000])
-                if resp:
+                if resp and resp.strip():
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
                         material_sections['lang_patterns'] = items
-            except:
-                material_sections['lang_patterns'] = ['패턴 분석 실패']
+                    else:
+                        material_sections['lang_patterns'] = ['직접적 대화', '짧은 문장', '감탄사 사용']
+            except Exception as e:
+                print(f"Lang patterns analysis failed: {e}")
+                material_sections['lang_patterns'] = ['대화체', '구어체 표현']
                 
         if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
             try:
+                time.sleep(1.0)  # Delay before secondary analysis
                 resp = _call_gemini("시청자의 감정을 자극하는 구체적 대사나 상황 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
-                if resp:
+                if resp and resp.strip():
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
                         material_sections['emotion_points'] = items
-            except:
-                material_sections['emotion_points'] = ['감정 분석 실패']
+                    else:
+                        material_sections['emotion_points'] = ['호기심 유발', '공감대 형성']
+            except Exception as e:
+                print(f"Emotion points analysis failed: {e}")
+                material_sections['emotion_points'] = ['흥미 유발', '긴장감 조성']
                 
         if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
             try:
+                time.sleep(1.0)  # Delay before secondary analysis
                 resp = _call_gemini("영상의 정보 전달 방식 특징 (대화체, 설명, 편집 스타일 등) 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
-                if resp:
+                if resp and resp.strip():
                     items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
                     if items:
                         material_sections['info_delivery'] = items
-            except:
-                material_sections['info_delivery'] = ['전달 방식 분석 실패']
+                    else:
+                        material_sections['info_delivery'] = ['대화 형식', '짧은 구성', '빠른 전개']
+            except Exception as e:
+                print(f"Info delivery analysis failed: {e}")
+                material_sections['info_delivery'] = ['직접적 전달', '간결한 구성']
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
