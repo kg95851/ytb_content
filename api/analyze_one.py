@@ -611,57 +611,118 @@ if _load_sb is None or _analyze_video is None:
         if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
             try:
                 time.sleep(1.0)  # Delay before secondary analysis
-                emotion_prompt = """대본에서 시청자의 감정을 가장 강하게 자극하는 구체적인 대사나 상황을 찾아주세요.
-예시: '끝내 침묵으로 일관하시면 이 광경은 국민께서 잘 판단하시리라 믿습니다'
-실제 대본에서 감정적 임팩트가 큰 부분 3-5개를 인용하여 쉼표로 구분:"""
-                resp = _call_gemini(emotion_prompt, tshort[:4000])
+                emotion_prompt = f"""다음 대본을 분석하여 감정 몰입 포인트를 찾아주세요.
+
+대본:
+{tshort[:3000]}
+
+위 대본에서 감정 몰입 포인트를 아래 형식으로 3-5개 작성하세요:
+[감정 설명] - [실제 대본 인용]
+
+예시:
+아버지가 딸을 걱정하는 모습 - "우리 딸 어디 가는 거야?"
+충격적 폭로 순간 - "사실 그때 그 사건의 진범은..."
+
+각 항목은 쉼표로 구분:"""
+                resp = _call_gemini(emotion_prompt, "")  # Already included transcript in prompt
                 if resp and resp.strip():
-                    # Extract actual quotes or specific emotional moments
                     items = []
-                    for item in resp.split(','):
-                        cleaned = item.strip().strip('"').strip("'")
-                        if cleaned and len(cleaned) > 5:
-                            # Truncate very long items but keep meaningful
-                            if len(cleaned) > 100:
-                                cleaned = cleaned[:97] + '...'
-                            items.append(cleaned)
+                    # Parse response looking for [description] - [quote] format
+                    for line in resp.replace('\n', ',').split(','):
+                        cleaned = line.strip().strip('*').strip('-').strip()
+                        if cleaned and '-' in cleaned:
+                            parts = cleaned.split('-', 1)
+                            if len(parts) == 2:
+                                desc = parts[0].strip()
+                                quote = parts[1].strip().strip('"').strip("'")
+                                # Verify quote is from transcript or make sense
+                                if desc and quote:
+                                    formatted = f"{desc[:50]} - {quote[:80]}"
+                                    items.append(formatted)
                     items = items[:5]
+                    
                     if items and len(items) >= 2:
                         material_sections['emotion_points'] = items
                     else:
-                        material_sections['emotion_points'] = ['결정적 순간', '감정 폭발 지점', '반전 상황']
+                        # Fallback: Find emotional moments with context
+                        emotional_parts = []
+                        sentences = [s.strip() for s in tshort.replace('?', '.').replace('!', '.').split('.') if s.strip()]
+                        for i, sentence in enumerate(sentences[:50]):  # Check first 50 sentences
+                            if any(word in sentence for word in ['충격', '놀라', '대박', '미친', '경악', '소름', '감동', '눈물', '분노', '화']):
+                                context = "감정 고조 순간"
+                                if '충격' in sentence or '놀라' in sentence: context = "충격적 순간"
+                                elif '분노' in sentence or '화' in sentence: context = "분노 표출"
+                                elif '눈물' in sentence or '감동' in sentence: context = "감동적 순간"
+                                quote = sentence[:60] + ('...' if len(sentence) > 60 else '')
+                                emotional_parts.append(f"{context} - \"{quote}\"")
+                        material_sections['emotion_points'] = emotional_parts[:4] if emotional_parts else ['감정 분석 - 대본 확인 필요']
             except Exception as e:
                 print(f"Emotion points analysis failed: {e}")
-                material_sections['emotion_points'] = ['클라이맥스 장면', '긴장감 최고조']
+                material_sections['emotion_points'] = ['감정 포인트 - 재분석 필요']
                 
         if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
             try:
                 time.sleep(1.0)  # Delay before secondary analysis
-                delivery_prompt = """영상의 정보 전달 방식과 특징을 구체적으로 분석하세요.
-예시: '직접적인 질문', '비판적인 어조', '반복적 추궁', '침묵 활용', '대조법 사용'
-실제 영상의 전달 방식 특징 3-5개를 구체적으로 쉼표로 구분:"""
-                resp = _call_gemini(delivery_prompt, tshort[:4000])
+                delivery_prompt = f"""다음 대본을 분석하여 정보 전달 방식의 특징을 찾아주세요.
+
+대본:
+{tshort[:3000]}
+
+위 대본에서 정보 전달 방식을 아래 형식으로 3-5개 작성하세요:
+[전달 방식 특징] - [해당하는 대본 예시]
+
+예시:
+직접적인 질문 사용 - "언제 열람하셨습니까? 어떻게 보셨습니까?"
+약품 효능 강조 - "이 약을 사면 암이 낫습니다"
+반복적 추궁 - "대답해 주십시오. 왜 침묵하십니까?"
+
+각 항목은 쉼표로 구분:"""
+                resp = _call_gemini(delivery_prompt, "")  # Already included transcript in prompt
                 if resp and resp.strip():
                     items = []
-                    for item in resp.replace('\n', ',').split(','):
-                        cleaned = item.strip()
-                        if cleaned and len(cleaned) > 3 and len(cleaned) < 50:
-                            items.append(cleaned)
-                    items = items[:6]
+                    # Parse response looking for [style] - [example] format
+                    for line in resp.replace('\n', ',').split(','):
+                        cleaned = line.strip().strip('*').strip('-').strip()
+                        if cleaned and '-' in cleaned:
+                            parts = cleaned.split('-', 1)
+                            if len(parts) == 2:
+                                style = parts[0].strip()
+                                example = parts[1].strip().strip('"').strip("'")
+                                if style and example:
+                                    formatted = f"{style[:40]} - {example[:60]}"
+                                    items.append(formatted)
+                    items = items[:5]
+                    
                     if items and len(items) >= 2:
                         material_sections['info_delivery'] = items
                     else:
-                        # Analyze transcript style
+                        # Fallback: Analyze transcript patterns with examples
                         styles = []
-                        if '?' in tshort: styles.append('질문 형식')
-                        if '!' in tshort: styles.append('감탄/강조')
-                        if len(tshort) < 1000: styles.append('간결한 구성')
-                        else: styles.append('상세한 설명')
-                        if '그런데' in tshort or '하지만' in tshort: styles.append('대조/반전 구조')
-                        material_sections['info_delivery'] = styles[:5] if styles else ['서술적 전달', '순차적 구성']
+                        sentences = tshort[:2000].split('.')
+                        
+                        # Find questions
+                        questions = [s.strip() for s in tshort[:2000].split('?')[:3] if s.strip()]
+                        if questions:
+                            q_example = questions[0][-50:] if questions[0] else ""
+                            styles.append(f"질문 형식 - \"{q_example}?\"")
+                        
+                        # Find commands/exclamations
+                        exclaims = [s.strip() for s in tshort[:2000].split('!')[:3] if s.strip()]
+                        if exclaims:
+                            e_example = exclaims[0][-50:] if exclaims[0] else ""
+                            styles.append(f"강조/명령 - \"{e_example}!\"")
+                        
+                        # Check for transitions
+                        if '그런데' in tshort or '하지만' in tshort:
+                            for s in sentences:
+                                if '그런데' in s or '하지만' in s:
+                                    styles.append(f"대조/전환 - \"{s[:60]}...\"")
+                                    break
+                        
+                        material_sections['info_delivery'] = styles[:4] if styles else ['정보 전달 - 대본 분석 필요']
             except Exception as e:
                 print(f"Info delivery analysis failed: {e}")
-                material_sections['info_delivery'] = ['직접 전달', '명확한 구조']
+                material_sections['info_delivery'] = ['전달 방식 - 재분석 필요']
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
