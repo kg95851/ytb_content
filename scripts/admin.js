@@ -1440,21 +1440,20 @@ async function runAnalysisForIds(ids, opts = {}) {
   // 동시 실행: API 키 개수에 따라 동시성 자동 조정
   // 각 키는 분당 60개 제한, 안전 마진 50% 적용
   let keyCount = 1;
+  
+  // 서버에서 실제 API 키 개수 가져오기
   try {
-    // 환경변수에서 실제 키 개수 추정
-    const multiKeys = process.env?.GEMINI_API_KEYS || '';
-    if (multiKeys) {
-      keyCount = multiKeys.split(',').filter(k => k.trim()).length;
-    } else {
-      // 번호 키 카운트 (1~100)
-      for (let i = 1; i <= 100; i++) {
-        if (process.env?.[`GEMINI_API_KEY${i}`]) keyCount++;
-        else break;
+    const debugRes = await fetch('/api/analyze_one/debug');
+    if (debugRes.ok) {
+      const debugData = await debugRes.json();
+      if (debugData && debugData.env && debugData.env.gemini_key_count) {
+        keyCount = debugData.env.gemini_key_count;
+        console.log(`서버에서 감지한 API 키: ${keyCount}개`);
       }
     }
-  } catch {
-    // 클라이언트에서는 정확한 키 개수를 알 수 없으므로 보수적으로 설정
-    keyCount = 3; // 기본값
+  } catch (e) {
+    console.log('API 키 개수 확인 실패, 기본값 사용:', e);
+    keyCount = 1; // 기본값
   }
   
   // 키 개수별 권장 동시성 (안정성 우선, 점진적 증가)
