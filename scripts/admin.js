@@ -1443,16 +1443,21 @@ async function runAnalysisForIds(ids, opts = {}) {
   
   // 서버에서 실제 API 키 개수 가져오기
   try {
-    const debugRes = await fetch('/api/analyze_one/debug');
-    if (debugRes.ok) {
-      const debugData = await debugRes.json();
-      if (debugData && debugData.env && debugData.env.gemini_key_count) {
-        keyCount = debugData.env.gemini_key_count;
+    const keyRes = await fetch('/api/key_count');
+    if (keyRes.ok) {
+      const keyData = await keyRes.json();
+      if (keyData && keyData.key_count) {
+        keyCount = keyData.key_count;
         console.log(`서버에서 감지한 API 키: ${keyCount}개`);
+        if (keyData.gemini_env_vars && keyData.gemini_env_vars.length > 0) {
+          console.log(`GEMINI 환경변수 목록: ${keyData.gemini_env_vars.join(', ')}`);
+        }
       }
+    } else {
+      console.log('API 키 개수 확인 실패 (HTTP ' + keyRes.status + ')');
     }
   } catch (e) {
-    console.log('API 키 개수 확인 실패, 기본값 사용:', e);
+    console.log('API 키 개수 확인 실패:', e);
     keyCount = 1; // 기본값
   }
   
