@@ -117,12 +117,12 @@ let isBulkDelete = false;
 let adminLastRows = [];
 // 대용량 모드: 기본 활성화. ids가 LARGE_THRESHOLD 이상이면 고성능 설정 적용
 let LARGE_MODE = true;
-let LARGE_THRESHOLD = 600;
+let LARGE_THRESHOLD = 200;  // 200개 이상부터 대용량 모드
 // 전체 작업 시 확인창 비활성화(자동 진행)
 let BULK_SILENT = true;
-let CONC_NORMAL = 6;
-let CONC_LARGE = 10;
-let SEQ_ANALYSIS = true; // 기본: 순차 실행
+let CONC_NORMAL = 6;  // 기본 동시성 (안정적)
+let CONC_LARGE = 8;   // 대용량 동시성 (안정적)
+let SEQ_ANALYSIS = false; // 기본: 병렬 실행
 
 function loadPerfSettings() {
   try {
@@ -1415,6 +1415,12 @@ async function runAnalysisForIds(ids, opts = {}) {
   showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
   let processed = 0, success = 0, failed = 0, skipped = 0;
   ABORT_CURRENT = false;
+  
+  // 배치 분석 모드 알림 (더 빠른 처리)
+  if (ids.length >= 50) {
+    appendAnalysisLog(`대량 분석 모드: ${ids.length}개 항목을 빠르게 처리합니다.`);
+  }
+  
   // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
   const preById = new Map();
   try {
@@ -1451,22 +1457,29 @@ async function runAnalysisForIds(ids, opts = {}) {
     keyCount = 3; // 기본값
   }
   
-  // 키 개수별 권장 동시성 (안전 마진 포함)
+  // 키 개수별 권장 동시성 (안정성 우선, 점진적 증가)
+  // Gemini Flash: 분당 15개, 일일 1500개 제한
+  // 안전 마진 50% 적용하여 안정적 처리
   let recommendedConc = 1;
   if (keyCount >= 20) {
-    recommendedConc = 6; // 20개 이상: 6 동시
+    recommendedConc = 8; // 20개 이상: 8 동시 (키당 0.4개)
   } else if (keyCount >= 15) {
-    recommendedConc = 5; // 15-19개: 5 동시
+    recommendedConc = 7; // 15-19개: 7 동시 (키당 0.46개)
   } else if (keyCount >= 10) {
-    recommendedConc = 4; // 10-14개: 4 동시
+    recommendedConc = 6; // 10-14개: 6 동시 (키당 0.6개)
   } else if (keyCount >= 5) {
-    recommendedConc = 3; // 5-9개: 3 동시
+    recommendedConc = 4; // 5-9개: 4 동시 (키당 0.8개)
   } else if (keyCount >= 3) {
-    recommendedConc = 2; // 3-4개: 2 동시
+    recommendedConc = 2; // 3-4개: 2 동시 (키당 0.66개)
   }
   
-  // 최종 동시성 결정
-  const conc = SEQ_ANALYSIS ? 1 : Math.min(recommendedConc, (opts && opts.large) ? CONC_LARGE : CONC_NORMAL);
+  // 동시성 로그 출력
+  console.log(`API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
+  appendAnalysisLog(`API 키 ${keyCount}개 감지, 동시성 ${recommendedConc}로 설정`);
+  
+  // 최종 동시성 결정 (대용량 모드에서는 더 높은 동시성 허용)
+  const maxConc = (opts && opts.large) ? Math.max(CONC_LARGE, recommendedConc) : CONC_NORMAL;
+  const conc = SEQ_ANALYSIS ? 1 : Math.min(recommendedConc, maxConc);
   console.log(`Using concurrency ${conc} for estimated ${keyCount} API keys`);
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
