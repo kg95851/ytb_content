@@ -1219,6 +1219,20 @@ function showAnalysisBanner(msg) {
 let ABORT_CURRENT = false;
 stopCurrentBtn?.addEventListener('click', () => { ABORT_CURRENT = true; appendAnalysisLog('요청 중단... 다음 아이템부터 멈춥니다.'); });
 
+function formatTimeKorean(seconds) {
+  if (!isFinite(seconds) || seconds <= 0) return '';
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}시간`);
+  if (mins > 0) parts.push(`${mins}분`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}초`);
+  
+  return parts.join(' ');
+}
+
 function updateAnalysisProgress(done, total, suffix) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
@@ -1331,7 +1345,8 @@ async function processInBatches(ids, worker, { concurrency = 6, onProgress, onIt
             const rate = processed / Math.max(1, elapsed);
             const remain = ids.length - processed;
             const etaSec = Math.round(remain / Math.max(0.001, rate));
-            onProgress({ processed, total: ids.length, pct, etaSec });
+            const etaFormatted = formatTimeKorean(etaSec);
+            onProgress({ processed, total: ids.length, pct, etaSec, etaFormatted });
           }
           pump();
         });
@@ -1517,9 +1532,10 @@ async function runAnalysisForIds(ids, opts = {}) {
   };
   const { done, failed: failedCnt } = await processInBatches(ids, worker, {
     concurrency: conc,
-    onProgress: ({ processed: p, total, pct }) => {
+    onProgress: ({ processed: p, total, pct, etaFormatted }) => {
       // 집계는 onItemDone에서 증가
-      updateAnalysisProgress(p, total);
+      const suffix = etaFormatted ? `예상 ${etaFormatted}` : '';
+      updateAnalysisProgress(p, total, suffix);
     },
     onItemDone: async (id, ok, payload) => {
       if (payload && payload.skip) { skipped++; }
@@ -1565,6 +1581,7 @@ runAnalysisAllBtn?.addEventListener('click', async () => {
     if (!ok) return;
   }
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
+  // 전체 분석도 선택 분석과 동일한 키 기반 동시성 로직 사용
   await runAnalysisForIds(ids, { large: useLarge });
     });
 
@@ -1652,7 +1669,14 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
     }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
+  const { done, failed } = await processInBatches(ids, worker, { 
+    concurrency: conc, 
+    onProgress: ({ processed, total, pct, etaFormatted }) => { 
+      const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
+      youtubeStatus.textContent = `대본 추출 진행 ${pct}%${eta}`; 
+      updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
+    } 
+  });
   youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   // 선택 항목만 가볍게 갱신하여 현재 페이지/필터 유지
   await refreshRowsByIds(ids);
@@ -1706,7 +1730,14 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
+  const { done, failed } = await processInBatches(ids, worker, { 
+    concurrency: conc, 
+    onProgress: ({ processed, total, pct, etaFormatted }) => { 
+      const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
+      youtubeStatus.textContent = `조회수 갱신 진행 ${pct}%${eta}`; 
+      updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
+    } 
+  });
   youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
   await fetchAndDisplayData();
 });
@@ -1780,7 +1811,11 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
   const { done, failed } = await processInBatches(ids, worker, {
     concurrency: conc,
-    onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}%`; updateAnalysisProgress(processed, total); },
+    onProgress: ({ processed, total, pct, etaFormatted }) => { 
+      const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
+      youtubeStatus.textContent = `전체 대본 추출 진행 ${pct}%${eta}`; 
+      updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
+    },
     onItemDone: async (id, ok) => {
       try { checkpointId = await saveTranscriptCheckpoint(checkpointId, id, ++processed); } catch {}
       // 부분 UI 갱신(성능 위해 20개 단위로)
@@ -1873,7 +1908,14 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { concurrency: conc, onProgress: ({ processed, total, pct }) => { youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}%`; updateAnalysisProgress(processed, total); } });
+  const { done, failed } = await processInBatches(ids, worker, { 
+    concurrency: conc, 
+    onProgress: ({ processed, total, pct, etaFormatted }) => { 
+      const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
+      youtubeStatus.textContent = `전체 조회수 갱신 진행 ${pct}%${eta}`; 
+      updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
+    } 
+  });
   youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
     await fetchAndDisplayData();
 });
