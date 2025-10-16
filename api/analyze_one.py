@@ -407,11 +407,11 @@ if _load_sb is None or _analyze_video is None:
         import time
         
         # Single combined prompt for all analyses
-        combined_prompt = """아래 영상 대본을 분석해서 정확히 다음 JSON 형식으로만 답하세요:
+        combined_prompt = """아래 영상 대본을 분석해서 정확히 다음 JSON 형식으로만 답하세요. 다른 설명이나 텍스트 없이 JSON만 출력:
 {
-  "material": "핵심 소재 3줄 요약",
-  "hooking": "첫 문장 후킹 포인트 1줄",
-  "structure": "기승전결 구조 4줄 요약"
+  "material": "핵심 소재를 3줄로 요약",
+  "hooking": "첫 문장의 후킹 포인트를 1줄로 설명",
+  "structure": "기: (시작), 승: (전개), 전: (갈등/반전), 결: (결말) 형식으로 4줄"
 }
 
 대본:
@@ -419,26 +419,71 @@ if _load_sb is None or _analyze_video is None:
         
         try:
             # Single API call for all three analyses
-            time.sleep(1)  # Small initial delay
+            time.sleep(2)  # Slightly longer initial delay for stability
             combined_resp = _call_gemini(combined_prompt, tshort[:5000])
             
             # Parse combined response
             if combined_resp:
+                # Clean response to extract JSON
+                resp_clean = combined_resp.strip()
+                if resp_clean.startswith('```json'):
+                    resp_clean = resp_clean[7:]
+                if resp_clean.startswith('```'):
+                    resp_clean = resp_clean[3:]
+                if resp_clean.endswith('```'):
+                    resp_clean = resp_clean[:-3]
+                resp_clean = resp_clean.strip()
+                
                 try:
                     # Try to parse as JSON
-                    parsed = json.loads(combined_resp)
-                    results['material'] = parsed.get('material', '소재 분석')[:2000]
-                    results['hooking'] = parsed.get('hooking', '후킹 분석')[:1000]
-                    results['structure'] = parsed.get('structure', '구조 분석')[:1000]
-                except:
-                    # Fallback: use whole response as material
-                    results['material'] = combined_resp[:2000]
-                    results['hooking'] = '후킹 분석 중'
-                    results['structure'] = '구조 분석 중'
+                    parsed = json.loads(resp_clean)
+                    results['material'] = parsed.get('material', '')[:2000] or '소재 분석 실패'
+                    results['hooking'] = parsed.get('hooking', '')[:1000] or '후킹 분석 실패'
+                    results['structure'] = parsed.get('structure', '')[:1000] or '구조 분석 실패'
+                except Exception as e:
+                    # If JSON parsing fails, try to extract manually
+                    print(f"JSON parsing failed: {e}, trying manual extraction")
+                    
+                    # Try to extract each field manually from the response
+                    if '"material"' in combined_resp and '"hooking"' in combined_resp and '"structure"' in combined_resp:
+                        try:
+                            # Extract material
+                            mat_start = combined_resp.find('"material"') + len('"material"')
+                            mat_start = combined_resp.find('"', mat_start) + 1
+                            mat_end = combined_resp.find('"', mat_start)
+                            while mat_end > 0 and combined_resp[mat_end-1] == '\\':
+                                mat_end = combined_resp.find('"', mat_end + 1)
+                            results['material'] = combined_resp[mat_start:mat_end] if mat_end > mat_start else '소재 추출 실패'
+                            
+                            # Extract hooking
+                            hook_start = combined_resp.find('"hooking"') + len('"hooking"')
+                            hook_start = combined_resp.find('"', hook_start) + 1
+                            hook_end = combined_resp.find('"', hook_start)
+                            while hook_end > 0 and combined_resp[hook_end-1] == '\\':
+                                hook_end = combined_resp.find('"', hook_end + 1)
+                            results['hooking'] = combined_resp[hook_start:hook_end] if hook_end > hook_start else '후킹 추출 실패'
+                            
+                            # Extract structure
+                            struct_start = combined_resp.find('"structure"') + len('"structure"')
+                            struct_start = combined_resp.find('"', struct_start) + 1
+                            struct_end = combined_resp.find('"', struct_start)
+                            while struct_end > 0 and combined_resp[struct_end-1] == '\\':
+                                struct_end = combined_resp.find('"', struct_end + 1)
+                            results['structure'] = combined_resp[struct_start:struct_end] if struct_end > struct_start else '구조 추출 실패'
+                        except:
+                            # Last resort: use the full response
+                            results['material'] = combined_resp[:600] if combined_resp else '분석 실패'
+                            results['hooking'] = '후킹 분석 실패'
+                            results['structure'] = '구조 분석 실패'
+                    else:
+                        # Response doesn't look like JSON at all
+                        results['material'] = combined_resp[:600] if combined_resp else '분석 실패'
+                        results['hooking'] = '후킹 분석 실패'
+                        results['structure'] = '구조 분석 실패'
             else:
-                results['material'] = '분석 실패'
-                results['hooking'] = '분석 실패'
-                results['structure'] = '분석 실패'
+                results['material'] = '응답 없음'
+                results['hooking'] = '응답 없음'
+                results['structure'] = '응답 없음'
                 
         except Exception as e:
             print(f"Combined analysis error: {e}")
