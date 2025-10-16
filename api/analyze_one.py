@@ -95,11 +95,14 @@ if _load_sb is None or _analyze_video is None:
             
             errors = []
             
-            # Adaptive delay based on key rotation
+            # Adaptive delay based on key rotation (balanced for stability)
             if key_attempt > 0:
-                time.sleep(5)  # Wait 5 seconds before trying next key
+                # Exponential backoff for retries
+                delay = min(10, 3 * (key_attempt ** 1.5))
+                time.sleep(delay)  # Progressive delay: 3s, 4.2s, 5.2s...
+                print(f"Retrying with key {key_attempt+1}/{total_keys} after {delay:.1f}s delay")
             else:
-                time.sleep(0.5)  # Small initial delay
+                time.sleep(0.5)  # Initial delay for stability
             
             for api_ver in ('v1', 'v1beta'):
                 for model in candidates:
@@ -107,7 +110,7 @@ if _load_sb is None or _analyze_video is None:
                         continue
                     url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                     try:
-                        res = requests.post(url, json=payload, timeout=240)
+                        res = requests.post(url, json=payload, timeout=60)  # Reduce timeout for faster failure detection
                         if res.status_code == 429:
                             # Rate limited - try next key
                             errors.append(f"{api_ver}/{model}:429-key{key_attempt+1}/{total_keys}")
@@ -406,21 +409,17 @@ if _load_sb is None or _analyze_video is None:
         # Combine all analyses into ONE LLM call to reduce API calls
         import time
         
-        # Single combined prompt for all analyses
-        combined_prompt = """아래 영상 대본을 분석해서 정확히 다음 JSON 형식으로만 답하세요. 다른 설명이나 텍스트 없이 JSON만 출력:
-{
-  "material": "핵심 소재를 3줄로 요약",
-  "hooking": "첫 문장의 후킹 포인트를 1줄로 설명",
-  "structure": "기: (시작), 승: (전개), 전: (갈등/반전), 결: (결말) 형식으로 4줄"
-}
+        # Single combined prompt for all analyses (simplified for speed)
+        combined_prompt = """JSON만 출력:
+{"material":"소재 3줄 요약","hooking":"후킹 1줄","structure":"기:(시작),승:(전개),전:(전환),결:(결말)"}
 
-대본:
-"""
+대본:"""
         
         try:
             # Single API call for all three analyses
-            time.sleep(2)  # Slightly longer initial delay for stability
-            combined_resp = _call_gemini(combined_prompt, tshort[:5000])
+            # Balanced delay for stability vs speed
+            time.sleep(1.0)  # Standard delay between requests to avoid rate limits
+            combined_resp = _call_gemini(combined_prompt, tshort[:4000])  # Optimal input size
             
             # Parse combined response
             if combined_resp:
