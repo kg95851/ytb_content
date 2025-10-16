@@ -564,56 +564,104 @@ if _load_sb is None or _analyze_video is None:
         # If still no sections, make direct calls
         if not material_sections.get('core_materials'):
             try:
-                resp = _call_gemini(_persona() + '\n\n핵심 소재 3~7개를 쉼표로 구분해 나열하세요. 다른 설명 없이 소재만.', tshort[:3000])
+                time.sleep(1.0)  # Delay for stability
+                core_prompt = """영상의 핵심 소재와 주제를 구체적으로 나열하세요.
+예시: '정치 스캔들', '고위직 의혹', '직접 추궁', '침묵/회피', '국민 주권 강조'
+실제 영상의 핵심 소재 3-7개를 구체적으로 쉼표로 구분:"""
+                resp = _call_gemini(core_prompt, tshort[:4000])
                 if resp:
-                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:7]
-                    if items:
+                    items = []
+                    for item in resp.replace('\n', ',').split(','):
+                        cleaned = item.strip().strip('*').strip('-').strip()
+                        if cleaned and len(cleaned) > 2 and len(cleaned) < 30:
+                            items.append(cleaned)
+                    items = items[:7]
+                    if items and len(items) >= 3:
                         material_sections['core_materials'] = items
-            except Exception:
-                pass
+                    else:
+                        material_sections['core_materials'] = ['주요 사건', '핵심 인물', '중심 갈등']
+            except Exception as e:
+                print(f"Core materials analysis failed: {e}")
+                material_sections['core_materials'] = ['핵심 주제', '주요 소재']
                 
         # Ensure all arrays have actual content
         if not material_sections.get('lang_patterns') or material_sections['lang_patterns'] == ['반복 표현 분석 중', '패턴 추출 중']:
             try:
                 time.sleep(1.0)  # Delay before secondary analysis
-                resp = _call_gemini("대본에서 반복되는 구체적인 언어 패턴, 말투, 표현 3-5개를 쉼표로 구분해 나열. 예: '~잖아요', '그런데 ~', '이게 ~':", tshort[:3000])
+                lang_prompt = """대본에서 실제로 반복되는 구체적인 언어 패턴과 표현을 찾아 나열하세요.
+예시: '~습니까?', '조희대 대법원장', '~하시면', '~잖아요', '그런데 ~'
+실제 대본에서 2번 이상 나오는 구체적 표현 3-5개를 쉼표로 구분:"""
+                resp = _call_gemini(lang_prompt, tshort[:4000])
                 if resp and resp.strip():
-                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
-                    if items:
+                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip() and len(x.strip()) > 2][:6]
+                    if items and len(items) >= 2:
                         material_sections['lang_patterns'] = items
                     else:
-                        material_sections['lang_patterns'] = ['직접적 대화', '짧은 문장', '감탄사 사용']
+                        # Fallback: extract common patterns manually
+                        patterns = []
+                        if '습니까' in tshort: patterns.append('~습니까?')
+                        if '그런데' in tshort: patterns.append('그런데 ~')
+                        if '이게' in tshort: patterns.append('이게 ~')
+                        if not patterns: patterns = ['질문 형식', '강조 표현']
+                        material_sections['lang_patterns'] = patterns
             except Exception as e:
                 print(f"Lang patterns analysis failed: {e}")
-                material_sections['lang_patterns'] = ['대화체', '구어체 표현']
+                material_sections['lang_patterns'] = ['반복 질문', '직접 호칭']
                 
         if not material_sections.get('emotion_points') or material_sections['emotion_points'] == ['감정 포인트 분석 중', '몰입 요소 추출 중']:
             try:
                 time.sleep(1.0)  # Delay before secondary analysis
-                resp = _call_gemini("시청자의 감정을 자극하는 구체적 대사나 상황 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
+                emotion_prompt = """대본에서 시청자의 감정을 가장 강하게 자극하는 구체적인 대사나 상황을 찾아주세요.
+예시: '끝내 침묵으로 일관하시면 이 광경은 국민께서 잘 판단하시리라 믿습니다'
+실제 대본에서 감정적 임팩트가 큰 부분 3-5개를 인용하여 쉼표로 구분:"""
+                resp = _call_gemini(emotion_prompt, tshort[:4000])
                 if resp and resp.strip():
-                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
-                    if items:
+                    # Extract actual quotes or specific emotional moments
+                    items = []
+                    for item in resp.split(','):
+                        cleaned = item.strip().strip('"').strip("'")
+                        if cleaned and len(cleaned) > 5:
+                            # Truncate very long items but keep meaningful
+                            if len(cleaned) > 100:
+                                cleaned = cleaned[:97] + '...'
+                            items.append(cleaned)
+                    items = items[:5]
+                    if items and len(items) >= 2:
                         material_sections['emotion_points'] = items
                     else:
-                        material_sections['emotion_points'] = ['호기심 유발', '공감대 형성']
+                        material_sections['emotion_points'] = ['결정적 순간', '감정 폭발 지점', '반전 상황']
             except Exception as e:
                 print(f"Emotion points analysis failed: {e}")
-                material_sections['emotion_points'] = ['흥미 유발', '긴장감 조성']
+                material_sections['emotion_points'] = ['클라이맥스 장면', '긴장감 최고조']
                 
         if not material_sections.get('info_delivery') or material_sections['info_delivery'] == ['전달 방식 분석 중', '구성 특징 추출 중']:
             try:
                 time.sleep(1.0)  # Delay before secondary analysis
-                resp = _call_gemini("영상의 정보 전달 방식 특징 (대화체, 설명, 편집 스타일 등) 3-5개를 쉼표로 구분해 나열:", tshort[:3000])
+                delivery_prompt = """영상의 정보 전달 방식과 특징을 구체적으로 분석하세요.
+예시: '직접적인 질문', '비판적인 어조', '반복적 추궁', '침묵 활용', '대조법 사용'
+실제 영상의 전달 방식 특징 3-5개를 구체적으로 쉼표로 구분:"""
+                resp = _call_gemini(delivery_prompt, tshort[:4000])
                 if resp and resp.strip():
-                    items = [x.strip() for x in resp.replace('\n', ',').split(',') if x.strip()][:5]
-                    if items:
+                    items = []
+                    for item in resp.replace('\n', ',').split(','):
+                        cleaned = item.strip()
+                        if cleaned and len(cleaned) > 3 and len(cleaned) < 50:
+                            items.append(cleaned)
+                    items = items[:6]
+                    if items and len(items) >= 2:
                         material_sections['info_delivery'] = items
                     else:
-                        material_sections['info_delivery'] = ['대화 형식', '짧은 구성', '빠른 전개']
+                        # Analyze transcript style
+                        styles = []
+                        if '?' in tshort: styles.append('질문 형식')
+                        if '!' in tshort: styles.append('감탄/강조')
+                        if len(tshort) < 1000: styles.append('간결한 구성')
+                        else: styles.append('상세한 설명')
+                        if '그런데' in tshort or '하지만' in tshort: styles.append('대조/반전 구조')
+                        material_sections['info_delivery'] = styles[:5] if styles else ['서술적 전달', '순차적 구성']
             except Exception as e:
                 print(f"Info delivery analysis failed: {e}")
-                material_sections['info_delivery'] = ['직접적 전달', '간결한 구성']
+                material_sections['info_delivery'] = ['직접 전달', '명확한 구조']
         return {
             'material': results['material'][:2000] if results['material'] else None,
             'material_main_idea': material_sections.get('main_idea')[:1000] if material_sections.get('main_idea') else None,
