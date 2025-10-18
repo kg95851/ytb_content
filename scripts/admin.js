@@ -449,6 +449,23 @@ window.addEventListener('DOMContentLoaded', () => {
     try { adminSortMode = st.sort || 'update_desc'; } catch {}
     try { adminCurrentPage = Math.max(1, Number(st.page || 1)); } catch {}
   }
+  
+  // 진행 중인 배너 상태 복원
+  try {
+    const bannerState = sessionStorage.getItem('analysis_banner_state');
+    if (bannerState) {
+      const state = JSON.parse(bannerState);
+      // 10분 이내의 상태만 복원 (오래된 것은 무시)
+      if (state.visible && (Date.now() - state.timestamp < 10 * 60 * 1000)) {
+        analysisBanner?.classList.remove('hidden');
+        if (analysisBannerText) analysisBannerText.textContent = state.message || '작업 진행 중...';
+        if (analysisProgressBar) analysisProgressBar.style.width = '50%'; // 중간 진행률로 표시
+      } else {
+        sessionStorage.removeItem('analysis_banner_state');
+      }
+    }
+  } catch {}
+  
   refreshAuthUI();
 });
 
@@ -1215,6 +1232,15 @@ function showAnalysisBanner(msg) {
   if (analysisBannerText) analysisBannerText.textContent = msg || '';
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
+  
+  // 진행 상태를 sessionStorage에 저장
+  try {
+    sessionStorage.setItem('analysis_banner_state', JSON.stringify({
+      visible: true,
+      message: msg || '',
+      timestamp: Date.now()
+    }));
+  } catch {}
 }
 
 function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
@@ -1227,11 +1253,15 @@ function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
     setTimeout(() => {
       analysisBanner?.classList.add('hidden');
       if (analysisLogEl) analysisLogEl.textContent = '';
+      // 배너 숨김 시 sessionStorage에서 제거
+      try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     }, 3000);
   } else {
     // 즉시 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
+    // 배너 숨김 시 sessionStorage에서 제거
+    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
   }
 }
 let ABORT_CURRENT = false;
@@ -1251,6 +1281,9 @@ stopCurrentBtn?.addEventListener('click', () => {
     // 배너 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
+    
+    // sessionStorage에서 배너 상태 제거
+    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     
     // 하단 상태 메시지들 숨김
     if (analysisStatus) {
