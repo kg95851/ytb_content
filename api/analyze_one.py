@@ -23,6 +23,7 @@ if _load_sb is None or _analyze_video is None:
     
     # Global key rotation state
     _gemini_key_index = 0
+    _gemini_keys_cache = None
 
     def _load_sb():  # type: ignore
         if create_client is None:
@@ -34,59 +35,72 @@ if _load_sb is None or _analyze_video is None:
         return create_client(url, key)
     
     def _get_next_gemini_key():
-        global _gemini_key_index
-        # Get multiple keys from environment
-        keys = []
+        global _gemini_key_index, _gemini_keys_cache
         
-        # Try comma-separated first (GEMINI_API_KEYS="key1,key2,key3")
-        multi_keys = os.getenv('GEMINI_API_KEYS')
-        if multi_keys:
-            keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
-            print(f"Found {len(keys)} keys from GEMINI_API_KEYS")
+        # Load keys only once and cache them
+        if _gemini_keys_cache is None:
+            keys = []
+            
+            # Try comma-separated first (GEMINI_API_KEYS="key1,key2,key3")
+            multi_keys = os.getenv('GEMINI_API_KEYS')
+            if multi_keys:
+                keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
+                print(f"Found {len(keys)} keys from GEMINI_API_KEYS")
+            
+            # Also try numbered keys (GEMINI_API_KEY1, GEMINI_API_KEY2, etc.)
+            if not keys:
+                for i in range(1, 101):
+                    key = os.getenv(f'GEMINI_API_KEY{i}')
+                    if key:
+                        # Remove quotes if present (common mistake)
+                        key = key.strip().strip('"').strip("'")
+                        if key and key.startswith('AIza'):  # Valid Gemini key format
+                            keys.append(key)
+                if keys:
+                    print(f"Total {len(keys)} numbered keys found (GEMINI_API_KEY1..{len(keys)})")
+            
+            # Fall back to single key
+            if not keys:
+                single_key = os.getenv('GEMINI_API_KEY')
+                if single_key:
+                    single_key = single_key.strip().strip('"').strip("'")
+                    keys = [single_key]
+                    print("Using single GEMINI_API_KEY")
+            
+            if not keys:
+                # Debug: show what environment variables exist
+                env_vars = [k for k in os.environ.keys() if 'GEMINI' in k]
+                print(f"Available GEMINI env vars: {env_vars}")
+                raise RuntimeError('No valid GEMINI_API_KEY found')
+            
+            _gemini_keys_cache = keys
+            print(f"=== Initialized with {len(keys)} Gemini API keys ===")
         
-        # Also try numbered keys (GEMINI_API_KEY1, GEMINI_API_KEY2, etc.)
-        if not keys:
-            for i in range(1, 101):
-                key = os.getenv(f'GEMINI_API_KEY{i}')
-                if key:
-                    # Remove quotes if present (common mistake)
-                    key = key.strip().strip('"').strip("'")
-                    if key and key.startswith('AIza'):  # Valid Gemini key format
-                        keys.append(key)
-                        print(f"Found GEMINI_API_KEY{i}")
-            if keys:
-                print(f"Total {len(keys)} numbered keys found")
+        # Use cached keys
+        keys = _gemini_keys_cache
         
-        # Fall back to single key
-        if not keys:
-            single_key = os.getenv('GEMINI_API_KEY')
-            if single_key:
-                single_key = single_key.strip().strip('"').strip("'")
-                keys = [single_key]
-                print("Using single GEMINI_API_KEY")
-        
-        if not keys:
-            # Debug: show what environment variables exist
-            env_vars = [k for k in os.environ.keys() if 'GEMINI' in k]
-            print(f"Available GEMINI env vars: {env_vars}")
-            raise RuntimeError('No valid GEMINI_API_KEY found')
-        
-        # Rotate through keys
+        # Get the next key in rotation
         key = keys[_gemini_key_index % len(keys)]
+        current_index = (_gemini_key_index % len(keys)) + 1
         _gemini_key_index += 1
-        print(f"Using Gemini key #{(_gemini_key_index % len(keys)) + 1} of {len(keys)}")
+        
+        # Always log in development to verify all keys are being used
+        print(f"[KEY ROTATION] Using key #{current_index}/{len(keys)} | Total calls: {_gemini_key_index} | Key: ...{key[-8:]}")
+        
+        # Log summary every full rotation
+        if current_index == len(keys):
+            print(f"[KEY ROTATION] ✓ Complete rotation - All {len(keys)} keys have been used")
+        
         return key, len(keys)
 
     def _call_gemini(system_prompt: str, user_content: str) -> str:
         import time
-        prefer = os.getenv('GEMINI_MODEL')
-        candidates = [
-            *( [prefer] if prefer else [] ),
-            'models/gemini-2.5-flash',
-            'models/gemini-2.0-flash-exp',
-            'models/gemini-1.5-flash-latest',
-            'models/gemini-1.5-pro-latest',
-        ]
+        import random
+        
+        # Only use Gemini 2.5 Flash as requested
+        model = 'models/gemini-2.5-flash'
+        api_ver = 'v1'
+        
         payload = {
             'contents': [
                 { 'role': 'user', 'parts': [{ 'text': f"{system_prompt}\n\n{user_content}" }] }
@@ -94,66 +108,113 @@ if _load_sb is None or _analyze_video is None:
             'generationConfig': { 'temperature': 0.3 }
         }
         base = 'https://generativelanguage.googleapis.com'
+        
         all_errors = []
         
-        # Try with multiple keys (up to 3 attempts with different keys)
-        max_key_attempts = 3
-        for key_attempt in range(max_key_attempts):
-            try:
-                api_key, total_keys = _get_next_gemini_key()
-            except Exception as e:
-                # If no keys available, use the error from key getter
-                raise RuntimeError(str(e))
-            
-            errors = []
-            
-            # Adaptive delay based on key rotation (balanced for stability)
-            if key_attempt > 0:
-                # Exponential backoff for retries
-                delay = min(10, 3 * (key_attempt ** 1.5))
-                time.sleep(delay)  # Progressive delay: 3s, 4.2s, 5.2s...
-                print(f"Retrying with key {key_attempt+1}/{total_keys} after {delay:.1f}s delay")
-            else:
-                time.sleep(0.5)  # Initial delay for stability
-            
-            for api_ver in ('v1', 'v1beta'):
-                for model in candidates:
-                    if not model:
-                        continue
+        # Get total number of keys available
+        try:
+            _, total_keys = _get_next_gemini_key()
+        except Exception as e:
+            raise RuntimeError(f"No API keys available: {e}")
+        
+        # Try ALL keys with fast rotation (2 rounds max)
+        max_rounds = 2
+        attempts = 0
+        used_keys = set()  # Track which keys have been used
+        
+        for round_num in range(max_rounds):
+            for key_index in range(total_keys):
+                attempts += 1
+                
+                try:
+                    api_key, _ = _get_next_gemini_key()
+                    current_key = (key_index % total_keys) + 1
+                    used_keys.add(current_key)  # Track this key usage
+                    
+                    # Delay strategy
+                    if attempts == 1:
+                        # First attempt - minimal delay
+                        time.sleep(0.2)
+                    elif round_num == 0:
+                        # First round - quick rotation
+                        delay = 0.3 + random.uniform(0, 0.2)
+                        time.sleep(delay)
+                    else:
+                        # Second round - slightly longer delay
+                        delay = 1.0 + random.uniform(0, 0.5)
+                        time.sleep(delay)
+                        if key_index == 0:
+                            print(f"Starting round {round_num + 1} after {delay:.1f}s delay")
+                    
                     url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
+                    
                     try:
-                        res = requests.post(url, json=payload, timeout=120)  # Increased timeout for complete responses
+                        res = requests.post(url, json=payload, timeout=120)
+                        
                         if res.status_code == 429:
-                            # Rate limited - try next key
-                            errors.append(f"{api_ver}/{model}:429-key{key_attempt+1}/{total_keys}")
-                            break  # Break inner loop to try next key
+                            # Rate limited - DO NOT SAVE ERROR RESPONSE
+                            all_errors.append(f"429-key{current_key}/{total_keys}")
+                            print(f"[429 ERROR] Key {current_key}/{total_keys} rate limited")
+                            print(f"[429 ERROR] Rotating to next key (will not save error to DB)")
+                            # Small delay before trying next key
+                            time.sleep(0.8 + random.uniform(0, 0.4))
+                            continue  # Try next key immediately without saving
+                        
                         if res.status_code == 404:
-                            errors.append(f"{api_ver}/{model}:404")
-                            continue
+                            # Model not found - this is a configuration error
+                            raise RuntimeError(f"Model {model} not found - check model name")
+                        
                         res.raise_for_status()
                         data = res.json()
-                        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-                        if text:
-                            return text
-                    except Exception as e:
-                        error_str = str(e)[:80]
-                        errors.append(f"{api_ver}/{model}:{error_str}")
-                        if '429' in error_str or 'Too Many Requests' in error_str:
-                            # Rate limited - try next key
-                            break
+                        
+                        # Extract text from response
+                        candidates = data.get('candidates', [])
+                        if candidates:
+                            content = candidates[0].get('content', {})
+                            parts = content.get('parts', [])
+                            if parts:
+                                text = parts[0].get('text', '')
+                                if text:
+                                    # Success!
+                                    if attempts > 1:
+                                        print(f"Success with key {current_key}/{total_keys} after {attempts} attempts")
+                                    return text
+                        
+                        all_errors.append(f"empty-response-key{current_key}")
+                        
+                    except requests.exceptions.Timeout:
+                        all_errors.append(f"timeout-key{current_key}")
+                        print(f"Timeout with key {current_key}/{total_keys}, rotating...")
                         continue
-                
-                # If we got rate limited with this key, break to try next key
-                if any('429' in e for e in errors):
-                    break
+                        
+                    except requests.exceptions.HTTPError as e:
+                        if e.response.status_code == 429:
+                            all_errors.append(f"429-key{current_key}")
+                            print(f"HTTP 429 with key {current_key}/{total_keys}, rotating...")
+                        else:
+                            all_errors.append(f"http-error-key{current_key}:{e.response.status_code}")
+                        continue
+                        
+                    except requests.exceptions.RequestException as e:
+                        all_errors.append(f"request-error-key{current_key}:{str(e)[:30]}")
+                        continue
+                        
+                except Exception as e:
+                    all_errors.append(f"unexpected:{str(e)[:30]}")
+                    continue
             
-            all_errors.extend(errors)
-            
-            # If we didn't get rate limited, no point trying more keys
-            if not any('429' in e for e in errors):
-                break
+            # After first round, wait a bit before second round
+            if round_num == 0 and total_keys > 0:
+                wait_time = 3.0 + random.uniform(0, 2)
+                print(f"Completed first round of {total_keys} keys, waiting {wait_time:.1f}s before round 2...")
+                time.sleep(wait_time)
         
-        raise RuntimeError('Gemini request failed: ' + '; '.join(all_errors))
+        # All attempts failed
+        error_summary = '; '.join(all_errors[-5:])  # Show last 5 errors
+        print(f"[KEY USAGE SUMMARY] Used {len(used_keys)}/{total_keys} unique keys in {attempts} attempts")
+        if len(used_keys) < total_keys:
+            print(f"[WARNING] Not all keys were used! Used keys: {sorted(used_keys)}")
+        raise RuntimeError(f'Gemini request failed after {attempts} attempts with {total_keys} keys: {error_summary}')
 
     def _persona() -> str:
         return (
