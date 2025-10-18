@@ -1353,7 +1353,7 @@ async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
 }
 
 // fetch 타임아웃 유틸
-async function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 240000) {  // 기본 4분 타임아웃
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
   try {
@@ -1615,7 +1615,8 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 180000);
+    // Increased timeout to 4 minutes to match server timeout + network overhead
+    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 240000);
     let j = null; try { j = await res.json(); } catch {}
     if (!res.ok) {
       const stage = j && j.stage ? j.stage : '';
