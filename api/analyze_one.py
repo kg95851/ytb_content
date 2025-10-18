@@ -472,7 +472,8 @@ if _load_sb is None or _analyze_video is None:
         if not transcript:
             raise RuntimeError('no transcript_text in DB')
         # Trim overly long transcripts to improve latency
-        max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '12000')
+        # Reduced for Vercel timeout limits (60s max)
+        max_chars = int(os.getenv('GEMINI_MAX_CHARS') or '4000')
         tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
         # 후킹 입력은 시작부 요약 정확도를 위해 처음 2~3문장만 전달
         first_sents = _clean_sentences_ko(tshort)[:3]
@@ -502,7 +503,7 @@ if _load_sb is None or _analyze_video is None:
             base_delay = 2.0  # Base delay
             jitter = random.uniform(0, 1.0)  # Random 0-1 second
             time.sleep(base_delay + jitter)  # 2-3 seconds total
-            combined_resp = _call_gemini(combined_prompt, tshort[:6000])  # More context for better analysis
+            combined_resp = _call_gemini(combined_prompt, tshort[:4000])  # Limited for Vercel timeout
             
             # Debug: Log the raw response length
             if combined_resp:
