@@ -351,20 +351,20 @@ const loginDebug = document.getElementById('login-debug');
 async function refreshAuthUI() {
   const { data: { session } } = await supabase.auth.getSession();
   if (session) {
-        loginView.classList.add('hidden');
-        adminPanel.classList.remove('hidden');
-        fetchAndDisplayData();
+    loginView.classList.add('hidden');
+    adminPanel.classList.remove('hidden');
+    fetchAndDisplayData();
     refreshSchedulesUI();
-    } else {
-        loginView.classList.remove('hidden');
-        adminPanel.classList.add('hidden');
-    }
+  } else {
+    loginView.classList.remove('hidden');
+    adminPanel.classList.add('hidden');
+  }
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
   geminiKeyStatus && (geminiKeyStatus.textContent = '');
   try {
     if (loginDebug) { loginDebug.style.display='block'; loginDebug.textContent = '';
@@ -455,11 +455,11 @@ window.addEventListener('DOMContentLoaded', () => {
 // ---------- Tabs ----------
 tabs.addEventListener('click', (e) => {
   if (!e.target.classList.contains('tab-link')) return;
-        const tabId = e.target.getAttribute('data-tab');
+  const tabId = e.target.getAttribute('data-tab');
   tabLinks.forEach(l => l.classList.remove('active'));
   tabContents.forEach(c => c.classList.remove('active'));
-        e.target.classList.add('active');
-        document.getElementById(tabId).classList.add('active');
+  e.target.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
 });
 
 // ---------- CRUD: Read/Render ----------
@@ -530,9 +530,9 @@ async function fetchAndDisplayData() {
 
 function renderTable(rows) {
   if (!rows?.length) {
-        dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
-        return;
-    }
+    dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
+    return;
+  }
   // 정렬 적용
   let sorted = rows.slice();
   const getUpdateTs = (v) => { try { return v.update_date ? new Date(v.update_date).getTime() : 0; } catch { return 0; } };
@@ -553,21 +553,21 @@ function renderTable(rows) {
       return 0;
     });
     }
-    const table = document.createElement('table');
-    table.className = 'data-table';
+  const table = document.createElement('table');
+  table.className = 'data-table';
   // 페이지 슬라이스
   const startIndex = (adminCurrentPage - 1) * ADMIN_PAGE_SIZE;
   const endIndex = startIndex + ADMIN_PAGE_SIZE;
   const pageRows = sorted.slice(startIndex, endIndex);
 
-    table.innerHTML = `
-        <thead>
-            <tr>
+  table.innerHTML = `
+    <thead>
+      <tr>
         <th><input type="checkbox" id="select-all-checkbox" /></th>
         <th></th><th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
-            </tr>
-        </thead>
-        <tbody>
+      </tr>
+    </thead>
+    <tbody>
       ${pageRows.map(v => `
         <tr data-id="${v.id}">
           <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
@@ -578,15 +578,15 @@ function renderTable(rows) {
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
           <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; const hasT = !!(v.transcript_text && String(v.transcript_text).trim().length > 0); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; if (hasT) return '<span class="group-tag" style="background:#3b82f6;">대본있음</span>'; return ''; })()}</td>
-                    <td class="action-buttons">
+          <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
-                    </td>
-                </tr>
-            `).join('')}
+          </td>
+        </tr>
+      `).join('')}
     </tbody>`;
-    dataTableContainer.innerHTML = '';
-    dataTableContainer.appendChild(table);
+  dataTableContainer.innerHTML = '';
+  dataTableContainer.appendChild(table);
   const selectAll = document.getElementById('select-all-checkbox');
   if (selectAll) selectAll.addEventListener('change', (e) => {
     document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = e.target.checked; });
@@ -721,26 +721,26 @@ const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
 
 async function openEditModal(id) {
-    docIdToEdit = id;
+  docIdToEdit = id;
   const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
   if (error || !data) return;
   const obj = data;
-        editForm.innerHTML = '';
+  editForm.innerHTML = '';
   Object.keys(obj).sort().forEach((key) => {
     const raw = obj[key];
-            const isObject = raw && typeof raw === 'object';
-            const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
-            const isLong = String(value).length > 100 || isObject;
-            editForm.innerHTML += `
-                <div class="form-group">
+    const isObject = raw && typeof raw === 'object';
+    const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
+    const isLong = String(value).length > 100 || isObject;
+    editForm.innerHTML += `
+      <div class="form-group">
         <label for="edit-${key}">${escapeHtml(key)}</label>
-                    ${isLong
+        ${isLong
           ? `<textarea id="edit-${key}" name="${escapeHtml(key)}" style="min-height:120px;">${escapeHtml(String(value))}</textarea>`
           : `<input type="text" id="edit-${key}" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}">`}
       </div>`;
-        });
-        editModal.classList.remove('hidden');
-    }
+  });
+  editModal.classList.remove('hidden');
+}
 
 function closeEditModal() { editModal.classList.add('hidden'); }
 cancelEditBtn.addEventListener('click', closeEditModal);
@@ -748,13 +748,13 @@ closeEditModalBtn.addEventListener('click', closeEditModal);
 
 saveEditBtn.addEventListener('click', async () => {
   const updated = {};
-    new FormData(editForm).forEach((value, key) => {
+  new FormData(editForm).forEach((value, key) => {
     try { updated[key] = (/^\s*\[|\{/.test(String(value))) ? JSON.parse(value) : value; }
     catch { updated[key] = value; }
   });
   await supabase.from('videos').update(updated).eq('id', docIdToEdit);
-    closeEditModal();
-    fetchAndDisplayData();
+  closeEditModal();
+  fetchAndDisplayData();
 });
 
 // ---------- CRUD: Delete ----------
@@ -767,33 +767,33 @@ const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
 function openConfirmModal(id, bulk) {
   isBulkDelete = !!bulk;
   if (isBulkDelete) {
-        confirmModalTitle.textContent = '선택 삭제 확인';
+    confirmModalTitle.textContent = '선택 삭제 확인';
     confirmModalMessage.textContent = '선택된 항목들을 삭제하시겠습니까?';
-    } else {
+  } else {
     docIdToEdit = id;
-        confirmModalTitle.textContent = '삭제 확인';
-        confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
-    }
-    confirmModal.classList.remove('hidden');
+    confirmModalTitle.textContent = '삭제 확인';
+    confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
+  }
+  confirmModal.classList.remove('hidden');
 }
 function closeConfirmModal() { confirmModal.classList.add('hidden'); }
 cancelDeleteBtn.addEventListener('click', closeConfirmModal);
 
 confirmDeleteBtn.addEventListener('click', async () => {
-    if (isBulkDelete) {
+  if (isBulkDelete) {
     const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
     if (ids.length) await supabase.from('videos').delete().in('id', ids);
-    } else {
+  } else {
     await supabase.from('videos').delete().eq('id', docIdToEdit);
-    }
-    closeConfirmModal();
-    fetchAndDisplayData();
+  }
+  closeConfirmModal();
+  fetchAndDisplayData();
 });
 
 bulkDeleteBtn.addEventListener('click', () => {
   const anyChecked = document.querySelector('.row-checkbox:checked');
   if (!anyChecked) { alert('삭제할 항목을 선택하세요.'); return; }
-        openConfirmModal(null, true);
+  openConfirmModal(null, true);
 });
 
 // ---------- Upload ----------
@@ -821,7 +821,7 @@ uploadBtn.addEventListener('click', () => {
   const ext = (selectedFile.name.split('.').pop() || '').toLowerCase();
   if (ext === 'csv') {
     Papa.parse(selectedFile, { header: true, skipEmptyLines: true, complete: (res) => processDataAndUpload(res.data), error: (err) => { uploadStatus.textContent = 'CSV 파싱 오류: ' + err.message; uploadStatus.style.color='red'; } });
-    } else {
+  } else {
     const reader = new FileReader(); reader.onload = (e) => {
       try { const wb = XLSX.read(e.target.result, { type: 'array' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); processDataAndUpload(rows); }
       catch (err) { uploadStatus.textContent = 'XLSX 파싱 오류: ' + (err?.message || err); uploadStatus.style.color='red'; }
@@ -950,16 +950,16 @@ async function processDataAndUpload(data) {
       : 'id,hash,thumbnail,title,views,views_numeric,channel,date,subscribers,subscribers_numeric,youtube_url,group_name,template_type';
     try {
       const { data: rows, error } = await supabase
-        .from('videos')
+      .from('videos')
         .select(selectFields)
-        .in('hash', slice);
+      .in('hash', slice);
       if (error) throw error;
-      (rows || []).forEach(r => existingByHash.set(r.hash, r));
+    (rows || []).forEach(r => existingByHash.set(r.hash, r));
     } catch (e) {
       uploadStatus.textContent = `기존 데이터 조회 실패: ${(e?.message || e)} (진행 ${Math.min(totalBatches, Math.floor(i / BATCH) + 1)}/${totalBatches})`;
       uploadStatus.style.color = 'orange';
       return;
-    }
+  }
     const doneBatches = Math.min(totalBatches, Math.floor(i / BATCH) + 1);
     uploadStatus.textContent = `기존 데이터 조회 중... ${doneBatches}/${totalBatches}`;
     await new Promise(r => setTimeout(r, 0));
@@ -1058,14 +1058,14 @@ if (exportJsonBtn) {
         await supabase.from('system').upsert({ id: 'settings', videos_json_url: publicUrl, last_build: new Date().toISOString() }, { onConflict: 'id' });
         exportStatus.textContent = `✅ ${rows.length}개 JSON 내보내기 및 업로드 완료`;
         exportStatus.style.color = 'green';
-        } catch (e) {
+      } catch (e) {
         exportStatus.textContent = `다운로드 완료, 업로드 실패: ${e?.message || e}`;
         exportStatus.style.color = 'orange';
       }
-        } catch (e) {
+    } catch (e) {
       exportStatus.style.display = 'block'; exportStatus.textContent = '❌ 내보내기 실패: ' + (e?.message || e); exportStatus.style.color = 'red';
-        }
-    });
+    }
+  });
 }
 
 // ---------- Schedules ----------
@@ -1132,46 +1132,46 @@ async function cancelSchedule(id) {
 }
 
 function renderSchedulesTable(rows) {
-    if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
-    const html = `
+  if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
+  const html = `
     <table class="data-table">
-        <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
-        <tbody>
-            ${rows.map(r => `
-            <tr data-id="${r.id}">
-                <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
-                <td>${r.id}</td>
+      <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `
+        <tr data-id="${r.id}">
+          <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
+          <td>${r.id}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
-            </tr>`).join('')}
-        </tbody>
+        </tr>`).join('')}
+      </tbody>
     </table>`;
-    schedulesTableContainer.innerHTML = html;
+  schedulesTableContainer.innerHTML = html;
   document.getElementById('sched-select-all')?.addEventListener('change', (e) => {
-        document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
-    });
+    document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
+  });
 }
 
 async function refreshSchedulesUI() {
-    const rows = await listSchedules();
+  const rows = await listSchedules();
   renderSchedulesTable(rows);
 }
 
 scheduleCreateBtn?.addEventListener('click', async () => {
-        const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
-        const runAtStr = scheduleTimeInput?.value || '';
-        if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
-        const runAt = new Date(runAtStr).getTime();
+  const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
+  const runAtStr = scheduleTimeInput?.value || '';
+  if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
+  const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-        let ids = [];
-        if (scope === 'selected') {
+  let ids = [];
+  if (scope === 'selected') {
     ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-            if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
-        }
-        scheduleCreateStatus.textContent = '예약 등록 중...';
+    if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
+  }
+  scheduleCreateStatus.textContent = '예약 등록 중...';
   try { const id = await createSchedule(scope, ids, runAt); scheduleCreateStatus.textContent = `예약 등록 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '예약 등록 실패: ' + (e?.message || e); }
 });
@@ -1181,7 +1181,7 @@ scheduleRankingBtn?.addEventListener('click', async () => {
   if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
   const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-        scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
+  scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
   try { const id = await createSchedule('all', [], runAt, 'ranking'); scheduleCreateStatus.textContent = `랭킹 예약 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '등록 실패: ' + (e?.message || e); }
 });
@@ -1193,18 +1193,18 @@ rankingRefreshNowBtn?.addEventListener('click', async () => {
 });
 
 schedulesTableContainer?.addEventListener('click', async (e) => {
-        const btn = e.target.closest('.btn-cancel-schedule');
+  const btn = e.target.closest('.btn-cancel-schedule');
   if (!btn) return;
   await cancelSchedule(btn.getAttribute('data-id'));
-            await refreshSchedulesUI();
-    });
+  await refreshSchedulesUI();
+});
 
 schedulesBulkDeleteBtn?.addEventListener('click', async () => {
-        const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
-        if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
+  const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
+  if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
   await supabase.from('schedules').delete().in('id', ids);
-        await refreshSchedulesUI();
-    });
+  await refreshSchedulesUI();
+});
 
 // ---------- Analysis helpers ----------
 function getTranscriptServerUrl() {
@@ -1216,8 +1216,56 @@ function showAnalysisBanner(msg) {
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
 }
+
+function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
+  if (showCompleteMsg && msg) {
+    // 완료 메시지를 잠시 표시
+    if (analysisBannerText) analysisBannerText.textContent = msg;
+    if (analysisProgressBar) analysisProgressBar.style.width = '100%';
+    
+    // 3초 후 배너 숨김
+    setTimeout(() => {
+      analysisBanner?.classList.add('hidden');
+      if (analysisLogEl) analysisLogEl.textContent = '';
+    }, 3000);
+  } else {
+    // 즉시 숨김
+    analysisBanner?.classList.add('hidden');
+    if (analysisLogEl) analysisLogEl.textContent = '';
+  }
+}
 let ABORT_CURRENT = false;
-stopCurrentBtn?.addEventListener('click', () => { ABORT_CURRENT = true; appendAnalysisLog('요청 중단... 다음 아이템부터 멈춥니다.'); });
+let CURRENT_TASK_NAME = '';
+
+stopCurrentBtn?.addEventListener('click', () => { 
+  ABORT_CURRENT = true; 
+  
+  // 현재 작업 이름 저장
+  const taskName = CURRENT_TASK_NAME || '작업';
+  
+  // 즉시 로그 추가
+  appendAnalysisLog('중단 요청됨. 진행 중인 작업을 중지합니다...');
+  
+  // 배너와 상태 메시지 즉시 숨김
+  setTimeout(() => {
+    // 배너 숨김
+    analysisBanner?.classList.add('hidden');
+    if (analysisLogEl) analysisLogEl.textContent = '';
+    
+    // 하단 상태 메시지들 숨김
+    if (analysisStatus) {
+      analysisStatus.style.display = 'none';
+      analysisStatus.textContent = '';
+    }
+    if (youtubeStatus) {
+      youtubeStatus.style.display = 'none';
+      youtubeStatus.textContent = '';
+    }
+    
+    // 중단 알림
+    alert(`${taskName}이(가) 중단되었습니다.`);
+  }, 500);
+});
 
 function formatTimeKorean(seconds) {
   if (!isFinite(seconds) || seconds <= 0) return '';
@@ -1244,7 +1292,7 @@ function appendAnalysisLog(line) {
 }
 
 async function fetchTranscriptByUrl(youtubeUrl) {
-    const server = getTranscriptServerUrl();
+  const server = getTranscriptServerUrl();
     // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
     const url = server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en';
     const res = await fetch(url);
@@ -1254,8 +1302,8 @@ async function fetchTranscriptByUrl(youtubeUrl) {
       const msg = 'Transcript fetch failed: ' + res.status + (reason ? (' ' + reason) : '');
       throw new Error(msg);
     }
-    const data = await res.json();
-    return data.text || '';
+  const data = await res.json();
+  return data.text || '';
 }
 
 // --- YouTube API helpers (분리된 기능)
@@ -1328,8 +1376,12 @@ async function processInBatches(ids, worker, { concurrency = 6, onProgress, onIt
     const results = [];
   return await new Promise((resolve) => {
     const pump = () => {
+      // 중단 체크
+      if (ABORT_CURRENT) {
+        return resolve({ done, failed, results, aborted: true });
+      }
       if (done + failed >= ids.length && inFlight === 0) return resolve({ done, failed, results });
-      while (inFlight < concurrency && i < ids.length) {
+      while (inFlight < concurrency && i < ids.length && !ABORT_CURRENT) {
         const id = ids[i++];
         const key = keys.length ? keys[nextKeyIndex++ % keys.length] : '';
         inFlight++;
@@ -1411,18 +1463,18 @@ async function analyzeOneVideo(video) {
 }
 
 async function runAnalysisForIds(ids, opts = {}) {
-  analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 시작... (총 ${ids.length}개)`; analysisStatus.style.color = '';
-  showAnalysisBanner(`총 ${ids.length}개 분석 시작 (소재→후킹→기승전결→그래프)`);
+  const originalCount = ids.length;
+  analysisStatus.style.display = 'block'; analysisStatus.textContent = `분석 준비 중... (총 ${originalCount}개)`; analysisStatus.style.color = '';
+  showAnalysisBanner(`분석 대상 확인 중...`);
   let processed = 0, success = 0, failed = 0, skipped = 0;
   ABORT_CURRENT = false;
-  
-  // 배치 분석 모드 알림 (더 빠른 처리)
-  if (ids.length >= 50) {
-    appendAnalysisLog(`대량 분석 모드: ${ids.length}개 항목을 빠르게 처리합니다.`);
-  }
+  CURRENT_TASK_NAME = '분석 작업';
   
   // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
   const preById = new Map();
+  let alreadyAnalyzedCount = 0;
+  let noTranscriptCount = 0;
+  
   try {
     const FIELDS = 'id, title, transcript_unavailable, transcript_text, dopamine_graph, material, hooking, narrative_structure, material_main_idea, material_core_materials, material_lang_patterns, material_emotion_points, material_info_delivery';
     const CHUNK = 1000;
@@ -1430,13 +1482,63 @@ async function runAnalysisForIds(ids, opts = {}) {
       const slice = ids.slice(i, i + CHUNK);
       const { data: preRows } = await supabase.from('videos').select(FIELDS).in('id', slice);
       (preRows || []).forEach(r => { if (r && r.id) preById.set(r.id, r); });
-        }
-    } catch {}
-  // 1) 즉시 필터링: transcript_unavailable=true 인 항목은 전부 제외(무조건 스킵)
-  ids = ids.filter(id => {
+    }
+  } catch {}
+  
+  // 필터링: 이미 분석된 항목과 대본 없는 항목 제외
+  const actualIds = [];
+  for (const id of ids) {
     const pre = preById.get(id);
-    return !(pre && pre.transcript_unavailable === true);
-  });
+    
+    // 대본 없음 체크
+    if (pre && pre.transcript_unavailable === true) {
+      noTranscriptCount++;
+      skipped++;
+      continue;
+    }
+    
+    // 이미 완전히 분석됨 체크
+    if (pre && pre.material && pre.hooking && pre.narrative_structure && 
+        Array.isArray(pre.dopamine_graph) && pre.dopamine_graph.length > 0) {
+      // 세부 필드도 체크
+      const hasAllDetails = pre.material_core_materials && pre.material_core_materials.length > 0 &&
+                           pre.material_lang_patterns && pre.material_lang_patterns.length > 0 &&
+                           pre.material_emotion_points && pre.material_emotion_points.length > 0 &&
+                           pre.material_info_delivery && pre.material_info_delivery.length > 0;
+      if (hasAllDetails) {
+        alreadyAnalyzedCount++;
+        skipped++;
+        continue;
+      }
+    }
+    
+    actualIds.push(id);
+  }
+  
+  // 실제 분석할 항목 수 표시
+  const actualCount = actualIds.length;
+  
+  if (alreadyAnalyzedCount > 0 || noTranscriptCount > 0) {
+    appendAnalysisLog(`스킵: 분석완료 ${alreadyAnalyzedCount}개, 대본없음 ${noTranscriptCount}개`);
+  }
+  
+  if (actualCount === 0) {
+    analysisStatus.textContent = `분석할 항목 없음 (이미 완료: ${alreadyAnalyzedCount}개, 대본없음: ${noTranscriptCount}개)`;
+    analysisStatus.style.color = 'orange';
+    updateAnalysisProgress(originalCount, originalCount, `모두 스킵됨`);
+    return;
+  }
+  
+  // 실제 분석 시작
+  showAnalysisBanner(`${actualCount}개 분석 시작 (총 ${originalCount}개 중 ${skipped}개 스킵)`);
+  analysisStatus.textContent = `분석 중... 0/${actualCount}개`;
+  
+  // 배치 분석 모드 알림
+  if (actualCount >= 50) {
+    appendAnalysisLog(`대량 분석 모드: ${actualCount}개 항목을 처리합니다.`);
+  }
+  
+  ids = actualIds;
   // 동시 실행: API 키 개수에 따라 동시성 자동 조정
   // 각 키는 분당 60개 제한, 안전 마진 50% 적용
   let keyCount = 1;
@@ -1482,8 +1584,10 @@ async function runAnalysisForIds(ids, opts = {}) {
   }
   
   // 동시성 로그 출력
-  console.log(`API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
+  console.log(`[분석 설정] API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
+  console.log(`[분석 설정] 분석 대상: ${ids.length}개 (전체: ${originalCount}개, 스킵: ${skipped}개)`);
   appendAnalysisLog(`API 키 ${keyCount}개 감지, 동시성 ${recommendedConc}로 설정`);
+  appendAnalysisLog(`키 로테이션: 모든 ${keyCount}개 키가 순차적으로 사용됩니다`);
   
   // 최종 동시성 결정 (대용량 모드에서는 더 높은 동시성 허용)
   const maxConc = (opts && opts.large) ? Math.max(CONC_LARGE, recommendedConc) : CONC_NORMAL;
@@ -1551,7 +1655,7 @@ async function runAnalysisForIds(ids, opts = {}) {
     }
     return { ok: true, saved, skipped };
   };
-  const { done, failed: failedCnt } = await processInBatches(ids, worker, {
+  const { done, failed: failedCnt, aborted } = await processInBatches(ids, worker, {
     concurrency: conc,
     onProgress: ({ processed: p, total, pct, etaFormatted }) => {
       // 집계는 onItemDone에서 증가
@@ -1583,8 +1687,31 @@ async function runAnalysisForIds(ids, opts = {}) {
       }
     }
   });
-  analysisStatus.textContent = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`; analysisStatus.style.color = failed ? 'orange' : 'green';
-    updateAnalysisProgress(ids.length, ids.length, `성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`);
+  
+  // 중단 체크
+  if (aborted) {
+    const abortMsg = `분석 중단됨: 처리 ${processed}개 (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
+    analysisStatus.textContent = abortMsg;
+    analysisStatus.style.color = 'orange';
+    return; // 중단 시 배너 숨김 등은 stopCurrentBtn 핸들러에서 처리
+  }
+  
+  // 완료 처리
+  const finalMsg = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`;
+  analysisStatus.textContent = finalMsg;
+  analysisStatus.style.color = failed ? 'orange' : 'green';
+  updateAnalysisProgress(ids.length, ids.length, `완료`);
+  
+  // 배너 자동 숨김
+  hideAnalysisBanner(true, finalMsg);
+  
+  // 하단 상태 메시지도 3초 후 제거
+  setTimeout(() => {
+    if (analysisStatus) {
+      analysisStatus.style.display = 'none';
+      analysisStatus.textContent = '';
+    }
+  }, 3000);
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
@@ -1592,19 +1719,19 @@ runAnalysisSelectedBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('분석할 항목을 선택하세요.'); return; }
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
   await runAnalysisForIds(ids, { large: useLarge });
-    });
+});
 
 runAnalysisAllBtn?.addEventListener('click', async () => {
-        const ids = currentData.map(v => v.id);
+  const ids = currentData.map(v => v.id);
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
   if (!BULK_SILENT) {
-    const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
-    if (!ok) return;
+  const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
+  if (!ok) return;
   }
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
   // 전체 분석도 선택 분석과 동일한 키 기반 동시성 로직 사용
   await runAnalysisForIds(ids, { large: useLarge });
-    });
+});
 
 // ---------- Comments (basic, optional) ----------
 function getStoredYoutubeApiKeys() { try { const raw = localStorage.getItem('youtube_api_keys_list') || ''; return raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean); } catch { return []; } }
@@ -1613,18 +1740,18 @@ function extractVideoIdFromUrl(urlStr) { try { const u = new URL(urlStr); if (u.
 
 async function fetchYoutubeComments(videoId, maxCount, keys) {
   const out = []; let pageToken = ''; let reqIndex = 0;
-    while (out.length < maxCount) {
-        const key = pickRotatingKey(keys, reqIndex++);
+  while (out.length < maxCount) {
+    const key = pickRotatingKey(keys, reqIndex++);
     if (!key) throw new Error('YouTube API 키가 없습니다.');
     const remain = maxCount - out.length; const pageSize = Math.max(1, Math.min(100, remain));
-        const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
+    const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
     url.searchParams.set('part', 'snippet'); url.searchParams.set('videoId', videoId); url.searchParams.set('maxResults', String(pageSize)); url.searchParams.set('order', 'relevance'); url.searchParams.set('key', key); if (pageToken) url.searchParams.set('pageToken', pageToken);
     const res = await fetch(url.toString()); if (!res.ok) break; const data = await res.json();
-        const items = Array.isArray(data.items) ? data.items : [];
+    const items = Array.isArray(data.items) ? data.items : [];
     for (const it of items) { const sn = it.snippet?.topLevelComment?.snippet; if (!sn) continue; out.push({ author: sn.authorDisplayName||'', text: sn.textOriginal||sn.textDisplay||'', likeCount: Number(sn.likeCount||0), publishedAt: sn.publishedAt||'' }); if (out.length >= maxCount) break; }
     if (out.length >= maxCount) break; pageToken = data.nextPageToken || ''; if (!pageToken) break;
-    }
-    return out;
+  }
+  return out;
 }
 
 runCommentsSelectedBtn?.addEventListener('click', async () => {
@@ -1635,8 +1762,8 @@ runCommentsSelectedBtn?.addEventListener('click', async () => {
   analysisStatus.style.display = 'block'; analysisStatus.textContent = `댓글 수집 시작... (${ids.length}개)`; analysisStatus.style.color = '';
   showAnalysisBanner(`댓글 수집 시작 (${ids.length}개)`);
   let done = 0;
-    for (const id of ids) {
-        try {
+  for (const id of ids) {
+    try {
       const { data: row } = await supabase.from('videos').select('youtube_url,title').eq('id', id).single();
       const vid = extractVideoIdFromUrl(row?.youtube_url || ''); if (!vid) { appendAnalysisLog(`(${id}) YouTube URL 없음`); continue; }
       const comments = await fetchYoutubeComments(vid, want, keys);
@@ -1659,6 +1786,8 @@ chipExport?.addEventListener('click', () => exportJsonBtn?.click());
 ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '대본 추출';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   showAnalysisBanner(`대본 추출 시작 (${ids.length}개)`);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
@@ -1690,7 +1819,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
     }
   };
   const conc = Math.max(1, Math.min(20, Number(ytTranscriptConcInput?.value || 6)));
-  const { done, failed } = await processInBatches(ids, worker, { 
+  const { done, failed, aborted } = await processInBatches(ids, worker, { 
     concurrency: conc, 
     onProgress: ({ processed, total, pct, etaFormatted }) => { 
       const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
@@ -1698,8 +1827,29 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
       updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
     } 
   });
-  youtubeStatus.textContent = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-  // 선택 항목만 가볍게 갱신하여 현재 페이지/필터 유지
+  
+  // 중단 체크
+  if (aborted) {
+    return; // 중단 시 stopCurrentBtn 핸들러에서 처리
+  }
+  
+  // 완료 처리
+  const finalMsg = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
+  youtubeStatus.textContent = finalMsg;
+  youtubeStatus.style.color = failed ? 'orange' : 'green';
+  
+  // 배너 자동 숨김
+  hideAnalysisBanner(true, finalMsg);
+  
+  // 하단 상태 메시지도 3초 후 제거
+  setTimeout(() => {
+    if (youtubeStatus) {
+      youtubeStatus.style.display = 'none';
+      youtubeStatus.textContent = '';
+    }
+  }, 3000);
+  
+  // 선택 항목만 가볍게 갱신하여 현재 페이지 유지 (페이지 이동 없음)
   await refreshRowsByIds(ids);
 });
 
@@ -1708,6 +1858,8 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '조회수 갱신';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   showAnalysisBanner(`조회수 갱신 시작 (${ids.length}개)`);
   const onlyMissing = !!ytViewsOnlyMissing?.checked;
@@ -1751,7 +1903,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { 
+  const { done, failed, aborted } = await processInBatches(ids, worker, { 
     concurrency: conc, 
     onProgress: ({ processed, total, pct, etaFormatted }) => { 
       const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
@@ -1759,8 +1911,30 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
       updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
     } 
   });
-  youtubeStatus.textContent = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-  await fetchAndDisplayData();
+  
+  // 중단 체크
+  if (aborted) {
+    return; // 중단 시 stopCurrentBtn 핸들러에서 처리
+  }
+  
+  // 완료 처리
+  const finalMsg = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
+  youtubeStatus.textContent = finalMsg;
+  youtubeStatus.style.color = failed ? 'orange' : 'green';
+  
+  // 배너 자동 숨김
+  hideAnalysisBanner(true, finalMsg);
+  
+  // 하단 상태 메시지도 3초 후 제거
+  setTimeout(() => {
+    if (youtubeStatus) {
+      youtubeStatus.style.display = 'none';
+      youtubeStatus.textContent = '';
+    }
+  }, 3000);
+  
+  // 선택 항목만 가볍게 갱신하여 현재 페이지 유지
+  await refreshRowsByIds(ids);
 });
 
 // --- 전체 처리 버튼들 ---
@@ -1852,8 +2026,28 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
         }
     }
   });
-  youtubeStatus.textContent = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-    await fetchAndDisplayData();
+  
+  // 완료 처리
+  const finalMsg = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
+  youtubeStatus.textContent = finalMsg;
+  youtubeStatus.style.color = failed ? 'orange' : 'green';
+  
+  // 배너 자동 숨김
+  hideAnalysisBanner(true, finalMsg);
+  
+  // 하단 상태 메시지도 3초 후 제거
+  setTimeout(() => {
+    if (youtubeStatus) {
+      youtubeStatus.style.display = 'none';
+      youtubeStatus.textContent = '';
+    }
+  }, 3000);
+  
+  // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
+  const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
+  if (currentPageIds.length > 0) {
+    await refreshRowsByIds(currentPageIds);
+  }
 });
 
 // --- 자동 재시작(체크포인트 이어받기) 유틸 ---
@@ -1937,8 +2131,28 @@ ytViewsAllBtn?.addEventListener('click', async () => {
       updateAnalysisProgress(processed, total, etaFormatted ? `예상 ${etaFormatted}` : ''); 
     } 
   });
-  youtubeStatus.textContent = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`; youtubeStatus.style.color = failed ? 'orange' : 'green';
-    await fetchAndDisplayData();
+  
+  // 완료 처리
+  const finalMsg = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
+  youtubeStatus.textContent = finalMsg;
+  youtubeStatus.style.color = failed ? 'orange' : 'green';
+  
+  // 배너 자동 숨김
+  hideAnalysisBanner(true, finalMsg);
+  
+  // 하단 상태 메시지도 3초 후 제거
+  setTimeout(() => {
+    if (youtubeStatus) {
+      youtubeStatus.style.display = 'none';
+      youtubeStatus.textContent = '';
+    }
+  }, 3000);
+  
+  // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
+  const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
+  if (currentPageIds.length > 0) {
+    await refreshRowsByIds(currentPageIds);
+  }
 });
 
 // ---------- Settings (local) ----------
