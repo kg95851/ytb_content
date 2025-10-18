@@ -1246,25 +1246,12 @@ function showAnalysisBanner(msg) {
 }
 
 function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
-  if (showCompleteMsg && msg) {
-    // 완료 메시지를 잠시 표시
+  // 이 함수는 더 이상 배너를 숨기지 않고 메시지만 업데이트
+  if (msg) {
     if (analysisBannerText) analysisBannerText.textContent = msg;
     if (analysisProgressBar) analysisProgressBar.style.width = '100%';
-    
-    // 3초 후 배너 숨김
-    setTimeout(() => {
-      analysisBanner?.classList.add('hidden');
-      if (analysisLogEl) analysisLogEl.textContent = '';
-      // 배너 숨김 시 sessionStorage에서 제거
-      try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
-    }, 3000);
-                } else {
-    // 즉시 숨김
-    analysisBanner?.classList.add('hidden');
-    if (analysisLogEl) analysisLogEl.textContent = '';
-    // 배너 숨김 시 sessionStorage에서 제거
-    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
   }
+  // 배너를 실제로 숨기려면 stopCurrentBtn 핸들러 사용
 }
 let ABORT_CURRENT = false;
 let CURRENT_TASK_NAME = '';
@@ -1278,7 +1265,10 @@ stopCurrentBtn?.addEventListener('click', () => {
   // 즉시 로그 추가
   appendAnalysisLog('중단 요청됨. 진행 중인 작업을 중지합니다...');
   
-  // 배너와 상태 메시지 즉시 숨김
+  // 중단 메시지 표시
+  if (analysisBannerText) analysisBannerText.textContent = `${taskName} 중단됨`;
+  
+  // 사용자가 명시적으로 중단했을 때만 배너 숨김 (1초 후)
   setTimeout(() => {
     // 배너 숨김
     analysisBanner?.classList.add('hidden');
@@ -1299,7 +1289,7 @@ stopCurrentBtn?.addEventListener('click', () => {
     
     // 중단 알림
     alert(`${taskName}이(가) 중단되었습니다.`);
-  }, 500);
+  }, 1000);
 });
 
 function formatTimeKorean(seconds) {
@@ -1837,24 +1827,15 @@ async function runAnalysisForIds(ids, opts = {}) {
     return;
   }
   
-  // 정상 완료 처리 (중단되지 않은 경우에만)
+  // 정상 완료 처리
   const finalMsg = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`;
   analysisStatus.textContent = finalMsg;
   analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `완료`);
   
-  // 정상 완료 시에만 배너 자동 숨김
-  if (!ABORT_CURRENT) {
-    hideAnalysisBanner(true, finalMsg);
-    
-    // 하단 상태 메시지도 3초 후 제거
-    setTimeout(() => {
-      if (analysisStatus && !ABORT_CURRENT) {
-        analysisStatus.style.display = 'none';
-        analysisStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  // 배너 메시지만 업데이트 (숨기지 않음)
+  if (analysisBannerText) analysisBannerText.textContent = finalMsg;
+  if (analysisProgressBar) analysisProgressBar.style.width = '100%';
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
@@ -1980,23 +1961,14 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
     return;
   }
   
-  // 정상 완료 처리 (중단되지 않은 경우에만)
+  // 정상 완료 처리
   const finalMsg = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 정상 완료 시에만 배너 자동 숨김
-  if (!ABORT_CURRENT) {
-    hideAnalysisBanner(true, finalMsg);
-    
-    // 하단 상태 메시지도 3초 후 제거
-    setTimeout(() => {
-      if (youtubeStatus && !ABORT_CURRENT) {
-        youtubeStatus.style.display = 'none';
-        youtubeStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  // 배너 메시지만 업데이트 (숨기지 않음)
+  if (analysisBannerText) analysisBannerText.textContent = finalMsg;
+  if (analysisProgressBar) analysisProgressBar.style.width = '100%';
   
   // 선택 항목만 가볍게 갱신하여 현재 페이지 유지 (페이지 이동 없음)
   await refreshRowsByIds(ids);
@@ -2070,23 +2042,14 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
     return;
   }
   
-  // 정상 완료 처리 (중단되지 않은 경우에만)
+  // 정상 완료 처리
   const finalMsg = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 정상 완료 시에만 배너 자동 숨김
-  if (!ABORT_CURRENT) {
-    hideAnalysisBanner(true, finalMsg);
-    
-    // 하단 상태 메시지도 3초 후 제거
-    setTimeout(() => {
-      if (youtubeStatus && !ABORT_CURRENT) {
-        youtubeStatus.style.display = 'none';
-        youtubeStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  // 배너 메시지만 업데이트 (숨기지 않음)
+  if (analysisBannerText) analysisBannerText.textContent = finalMsg;
+  if (analysisProgressBar) analysisProgressBar.style.width = '100%';
   
   // 선택 항목만 가볍게 갱신하여 현재 페이지 유지
   await refreshRowsByIds(ids);
@@ -2191,23 +2154,14 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
     return;
   }
   
-  // 정상 완료 처리 (중단되지 않은 경우에만)
+  // 정상 완료 처리
   const finalMsg = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 정상 완료 시에만 배너 자동 숨김
-  if (!ABORT_CURRENT) {
-    hideAnalysisBanner(true, finalMsg);
-    
-    // 하단 상태 메시지도 3초 후 제거
-    setTimeout(() => {
-      if (youtubeStatus && !ABORT_CURRENT) {
-        youtubeStatus.style.display = 'none';
-        youtubeStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  // 배너 메시지만 업데이트 (숨기지 않음)
+  if (analysisBannerText) analysisBannerText.textContent = finalMsg;
+  if (analysisProgressBar) analysisProgressBar.style.width = '100%';
   
   // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
   const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
@@ -2307,23 +2261,14 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     return;
   }
   
-  // 정상 완료 처리 (중단되지 않은 경우에만)
+  // 정상 완료 처리
   const finalMsg = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 정상 완료 시에만 배너 자동 숨김
-  if (!ABORT_CURRENT) {
-    hideAnalysisBanner(true, finalMsg);
-    
-    // 하단 상태 메시지도 3초 후 제거
-    setTimeout(() => {
-      if (youtubeStatus && !ABORT_CURRENT) {
-        youtubeStatus.style.display = 'none';
-        youtubeStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  // 배너 메시지만 업데이트 (숨기지 않음)
+  if (analysisBannerText) analysisBannerText.textContent = finalMsg;
+  if (analysisProgressBar) analysisProgressBar.style.width = '100%';
   
   // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
   const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
