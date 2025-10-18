@@ -449,23 +449,6 @@ window.addEventListener('DOMContentLoaded', () => {
     try { adminSortMode = st.sort || 'update_desc'; } catch {}
     try { adminCurrentPage = Math.max(1, Number(st.page || 1)); } catch {}
   }
-  
-  // 진행 중인 배너 상태 복원
-  try {
-    const bannerState = sessionStorage.getItem('analysis_banner_state');
-    if (bannerState) {
-      const state = JSON.parse(bannerState);
-      // 10분 이내의 상태만 복원 (오래된 것은 무시)
-      if (state.visible && (Date.now() - state.timestamp < 10 * 60 * 1000)) {
-        analysisBanner?.classList.remove('hidden');
-        if (analysisBannerText) analysisBannerText.textContent = state.message || '작업 진행 중...';
-        if (analysisProgressBar) analysisProgressBar.style.width = '50%'; // 중간 진행률로 표시
-      } else {
-        sessionStorage.removeItem('analysis_banner_state');
-      }
-    }
-  } catch {}
-  
   refreshAuthUI();
 });
 
@@ -569,7 +552,7 @@ function renderTable(rows) {
       if (A !== B) return B - A; // 즐겨찾기(true=1)가 더 앞으로
       return 0;
     });
-  }
+    }
   const table = document.createElement('table');
   table.className = 'data-table';
   // 페이지 슬라이스
@@ -1232,15 +1215,6 @@ function showAnalysisBanner(msg) {
   if (analysisBannerText) analysisBannerText.textContent = msg || '';
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
-  
-  // 진행 상태를 sessionStorage에 저장
-  try {
-    sessionStorage.setItem('analysis_banner_state', JSON.stringify({
-      visible: true,
-      message: msg || '',
-      timestamp: Date.now()
-    }));
-  } catch {}
 }
 
 function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
@@ -1253,15 +1227,11 @@ function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
     setTimeout(() => {
       analysisBanner?.classList.add('hidden');
       if (analysisLogEl) analysisLogEl.textContent = '';
-      // 배너 숨김 시 sessionStorage에서 제거
-      try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     }, 3000);
   } else {
     // 즉시 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
-    // 배너 숨김 시 sessionStorage에서 제거
-    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
   }
 }
 let ABORT_CURRENT = false;
@@ -1281,9 +1251,6 @@ stopCurrentBtn?.addEventListener('click', () => {
     // 배너 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
-    
-    // sessionStorage에서 배너 상태 제거
-    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     
     // 하단 상태 메시지들 숨김
     if (analysisStatus) {
@@ -1386,7 +1353,7 @@ async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
 }
 
 // fetch 타임아웃 유틸
-async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {  // 기본 60초 (Vercel Pro)
+async function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
   try {
@@ -1617,10 +1584,8 @@ async function runAnalysisForIds(ids, opts = {}) {
   }
   
   // 동시성 로그 출력
-  console.log(`[분석 설정] API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
-  console.log(`[분석 설정] 분석 대상: ${ids.length}개 (전체: ${originalCount}개, 스킵: ${skipped}개)`);
+  console.log(`API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
   appendAnalysisLog(`API 키 ${keyCount}개 감지, 동시성 ${recommendedConc}로 설정`);
-  appendAnalysisLog(`키 로테이션: 모든 ${keyCount}개 키가 순차적으로 사용됩니다`);
   
   // 최종 동시성 결정 (대용량 모드에서는 더 높은 동시성 허용)
   const maxConc = (opts && opts.large) ? Math.max(CONC_LARGE, recommendedConc) : CONC_NORMAL;
@@ -1648,12 +1613,7 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    // Phase 1: Basic analysis (30 seconds timeout for Vercel Pro)
-    const res = await fetchWithTimeout('/api/analyze_one', { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ id, phase: 1 }) 
-    }, 58000); // 58 seconds for Vercel Pro limit
+    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 180000);
     let j = null; try { j = await res.json(); } catch {}
     if (!res.ok) {
       const stage = j && j.stage ? j.stage : '';
@@ -1674,27 +1634,6 @@ async function runAnalysisForIds(ids, opts = {}) {
     // 디버깅: 실제 저장된 값 확인
     const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
     const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
-    
-    // Phase 2: Detailed patterns analysis (if phase 1 succeeded)
-    if (saved.length > 0 && !j.skip_phase2) {
-      try {
-        appendAnalysisLog(`(${id}) 2단계 세부 분석 시작`);
-        const res2 = await fetchWithTimeout('/api/analyze_one', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ id, phase: 2 }) 
-        }, 58000); // Another 58 seconds for phase 2
-        
-        const j2 = await res2.json();
-        if (j2 && j2.saved_keys) {
-          saved.push(...j2.saved_keys);
-          appendAnalysisLog(`(${id}) 2단계 완료: ${j2.saved_keys.join(',')}`);
-        }
-      } catch (e2) {
-        appendAnalysisLog(`(${id}) 2단계 실패: ${e2.message}`);
-        // Phase 2 failure is not critical, continue
-      }
-    }
     // 실제로 저장된 항목 재확인
     if (saved.length > 0) {
       try {
