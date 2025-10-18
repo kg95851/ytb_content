@@ -1386,7 +1386,7 @@ async function withRetry(fn, { retries = 3, baseDelayMs = 500 }) {
 }
 
 // fetch 타임아웃 유틸
-async function fetchWithTimeout(url, options = {}, timeoutMs = 240000) {  // 기본 4분 타임아웃
+async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {  // 기본 60초 (Vercel Pro)
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
   try {
@@ -1648,8 +1648,12 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    // Increased timeout to 4 minutes to match server timeout + network overhead
-    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 240000);
+    // Phase 1: Basic analysis (30 seconds timeout for Vercel Pro)
+    const res = await fetchWithTimeout('/api/analyze_one', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ id, phase: 1 }) 
+    }, 58000); // 58 seconds for Vercel Pro limit
     let j = null; try { j = await res.json(); } catch {}
     if (!res.ok) {
       const stage = j && j.stage ? j.stage : '';
@@ -1670,6 +1674,27 @@ async function runAnalysisForIds(ids, opts = {}) {
     // 디버깅: 실제 저장된 값 확인
     const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
     const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
+    
+    // Phase 2: Detailed patterns analysis (if phase 1 succeeded)
+    if (saved.length > 0 && !j.skip_phase2) {
+      try {
+        appendAnalysisLog(`(${id}) 2단계 세부 분석 시작`);
+        const res2 = await fetchWithTimeout('/api/analyze_one', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ id, phase: 2 }) 
+        }, 58000); // Another 58 seconds for phase 2
+        
+        const j2 = await res2.json();
+        if (j2 && j2.saved_keys) {
+          saved.push(...j2.saved_keys);
+          appendAnalysisLog(`(${id}) 2단계 완료: ${j2.saved_keys.join(',')}`);
+        }
+      } catch (e2) {
+        appendAnalysisLog(`(${id}) 2단계 실패: ${e2.message}`);
+        // Phase 2 failure is not critical, continue
+      }
+    }
     // 실제로 저장된 항목 재확인
     if (saved.length > 0) {
       try {
