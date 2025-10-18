@@ -402,10 +402,23 @@ logoutBtn.addEventListener('click', async () => {
   await refreshAuthUI();
 });
 
+// 분석 중 auth 변경으로 인한 페이지 새로고침 방지
+let isAnalysisRunning = false;
+
 supabase.auth.onAuthStateChange((e, s) => {
   const d = document.getElementById('login-debug');
   if (d) { d.style.display = 'block'; d.textContent += `[auth] ${e} session=${!!s?.session}\n`; }
-  refreshAuthUI();
+  
+  // 분석 중이거나 작업 중일 때는 UI 새로고침 방지
+  if (isAnalysisRunning || !ABORT_CURRENT) {
+    console.log('[AUTH] 분석 중 auth 이벤트 무시:', e);
+    return;
+  }
+  
+  // 초기 로드나 실제 로그인/로그아웃일 때만 UI 새로고침
+  if (e === 'INITIAL_SESSION' || e === 'SIGNED_IN' || e === 'SIGNED_OUT') {
+    refreshAuthUI();
+  }
 });
 window.addEventListener('DOMContentLoaded', () => {
   // 기본 예약 시간: +30분
@@ -1239,6 +1252,7 @@ let CURRENT_TASK_NAME = '';
 
 stopCurrentBtn?.addEventListener('click', () => { 
   ABORT_CURRENT = true; 
+  isAnalysisRunning = false;  // 작업 종료 플래그
   
   // 현재 작업 이름 저장
   const taskName = CURRENT_TASK_NAME || '작업';
@@ -1469,6 +1483,7 @@ async function runAnalysisForIds(ids, opts = {}) {
   let processed = 0, success = 0, failed = 0, skipped = 0;
   ABORT_CURRENT = false;
   CURRENT_TASK_NAME = '분석 작업';
+  isAnalysisRunning = true;  // 분석 시작 플래그
   
   // 미리 필요 필드 로드하여 스킵 판단(네트워크 절감)
   const preById = new Map();
@@ -1694,6 +1709,7 @@ async function runAnalysisForIds(ids, opts = {}) {
     const abortMsg = `분석 중단됨: 처리 ${processed}개 (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
     analysisStatus.textContent = abortMsg;
     analysisStatus.style.color = 'orange';
+    isAnalysisRunning = false;  // 분석 종료 플래그
     return; // 중단 시 배너 숨김 등은 stopCurrentBtn 핸들러에서 처리
   }
   
@@ -1702,6 +1718,7 @@ async function runAnalysisForIds(ids, opts = {}) {
   analysisStatus.textContent = finalMsg;
   analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `완료`);
+  isAnalysisRunning = false;  // 분석 종료 플래그
   
   // 배너 자동 숨김
   hideAnalysisBanner(true, finalMsg);
@@ -1789,6 +1806,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
   ABORT_CURRENT = false;
   CURRENT_TASK_NAME = '대본 추출';
+  isAnalysisRunning = true;  // 작업 시작 플래그
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   showAnalysisBanner(`대본 추출 시작 (${ids.length}개)`);
   const onlyMissing = !!ytTranscriptOnlyMissing?.checked;
@@ -1831,6 +1849,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   
   // 중단 체크
   if (aborted) {
+    isAnalysisRunning = false;  // 작업 종료 플래그
     return; // 중단 시 stopCurrentBtn 핸들러에서 처리
   }
   
@@ -1838,6 +1857,7 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   const finalMsg = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
+  isAnalysisRunning = false;  // 작업 종료 플래그
   
   // 배너 자동 숨김
   hideAnalysisBanner(true, finalMsg);
@@ -1861,6 +1881,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   ABORT_CURRENT = false;
   CURRENT_TASK_NAME = '조회수 갱신';
+  isAnalysisRunning = true;  // 작업 시작 플래그
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
   showAnalysisBanner(`조회수 갱신 시작 (${ids.length}개)`);
   const onlyMissing = !!ytViewsOnlyMissing?.checked;
@@ -1915,6 +1936,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   
   // 중단 체크
   if (aborted) {
+    isAnalysisRunning = false;  // 작업 종료 플래그
     return; // 중단 시 stopCurrentBtn 핸들러에서 처리
   }
   
@@ -1922,6 +1944,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   const finalMsg = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
+  isAnalysisRunning = false;  // 작업 종료 플래그
   
   // 배너 자동 숨김
   hideAnalysisBanner(true, finalMsg);
@@ -1943,6 +1966,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   if (!BULK_SILENT) {
     if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   }
+  isAnalysisRunning = true;  // 작업 시작 플래그
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 대본 추출 시작');
   // 1) ID 오름차순으로 정렬
@@ -2032,6 +2056,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   const finalMsg = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
+  isAnalysisRunning = false;  // 작업 종료 플래그
   
   // 배너 자동 숨김
   hideAnalysisBanner(true, finalMsg);
@@ -2080,6 +2105,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   if (!BULK_SILENT) {
     if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   }
+  isAnalysisRunning = true;  // 작업 시작 플래그
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 조회수 갱신 시작');
         const ids = currentData.map(v => v.id);
@@ -2137,6 +2163,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
   const finalMsg = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
+  isAnalysisRunning = false;  // 작업 종료 플래그
   
   // 배너 자동 숨김
   hideAnalysisBanner(true, finalMsg);
