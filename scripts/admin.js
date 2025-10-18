@@ -351,20 +351,20 @@ const loginDebug = document.getElementById('login-debug');
 async function refreshAuthUI() {
   const { data: { session } } = await supabase.auth.getSession();
   if (session) {
-    loginView.classList.add('hidden');
-    adminPanel.classList.remove('hidden');
-    fetchAndDisplayData();
+        loginView.classList.add('hidden');
+        adminPanel.classList.remove('hidden');
+        fetchAndDisplayData();
     refreshSchedulesUI();
-  } else {
-    loginView.classList.remove('hidden');
-    adminPanel.classList.add('hidden');
-  }
+    } else {
+        loginView.classList.remove('hidden');
+        adminPanel.classList.add('hidden');
+    }
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
   geminiKeyStatus && (geminiKeyStatus.textContent = '');
   try {
     if (loginDebug) { loginDebug.style.display='block'; loginDebug.textContent = '';
@@ -429,6 +429,48 @@ window.addEventListener('DOMContentLoaded', () => {
   restoreLocalSettings();
   // 성능 설정 초기화
   loadPerfSettings();
+  
+  // 분석 배너 상태 복원
+  try {
+    const savedState = localStorage.getItem('analysis_banner_state');
+    if (savedState) {
+      const state = JSON.parse(savedState);
+      // 72시간(3일) 이내의 상태만 복원 - 대용량 분석 고려
+      if (state.timestamp && Date.now() - state.timestamp < 72 * 60 * 60 * 1000) {
+        // 배너 표시
+        if (analysisBanner) {
+          analysisBanner.classList.remove('hidden');
+        }
+        // 메시지 복원
+        if (state.message && analysisBannerText) {
+          analysisBannerText.textContent = state.message;
+        }
+        // 진행률 복원
+        if (state.progress) {
+          const { done, total, pct, suffix } = state.progress;
+          if (analysisProgressBar) {
+            analysisProgressBar.style.width = (pct || 0) + '%';
+          }
+          if (analysisBannerText && done !== undefined && total !== undefined) {
+            analysisBannerText.textContent = `진행률 ${done}/${total} (${pct}%)` + (suffix ? ` — ${suffix}` : '');
+          }
+        }
+        // 로그에 복원 메시지 추가 (경과 시간 포함)
+        if (analysisLogEl) {
+          const elapsedHours = Math.floor((Date.now() - state.timestamp) / (60 * 60 * 1000));
+          const elapsedMinutes = Math.floor(((Date.now() - state.timestamp) % (60 * 60 * 1000)) / (60 * 1000));
+          analysisLogEl.textContent = '[시스템] 이전 작업 상태가 복원되었습니다.\n';
+          analysisLogEl.textContent += `[시스템] 마지막 업데이트: ${elapsedHours}시간 ${elapsedMinutes}분 전\n`;
+          analysisLogEl.textContent += '[시스템] 작업이 중단되었다면 다시 시작해주세요.\n';
+        }
+      } else {
+        // 오래된 상태는 제거
+        localStorage.removeItem('analysis_banner_state');
+      }
+    }
+  } catch (e) {
+    console.error('배너 상태 복원 실패:', e);
+  }
   try {
     if (perfLargeModeInput) perfLargeModeInput.checked = !!LARGE_MODE;
     if (perfLargeThresholdInput) perfLargeThresholdInput.value = String(LARGE_THRESHOLD);
@@ -468,11 +510,11 @@ window.addEventListener('DOMContentLoaded', () => {
 // ---------- Tabs ----------
 tabs.addEventListener('click', (e) => {
   if (!e.target.classList.contains('tab-link')) return;
-  const tabId = e.target.getAttribute('data-tab');
+        const tabId = e.target.getAttribute('data-tab');
   tabLinks.forEach(l => l.classList.remove('active'));
   tabContents.forEach(c => c.classList.remove('active'));
-  e.target.classList.add('active');
-  document.getElementById(tabId).classList.add('active');
+        e.target.classList.add('active');
+        document.getElementById(tabId).classList.add('active');
 });
 
 // ---------- CRUD: Read/Render ----------
@@ -543,8 +585,8 @@ async function fetchAndDisplayData() {
 
 function renderTable(rows) {
   if (!rows?.length) {
-    dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
-    return;
+        dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
+        return;
   }
   // 정렬 적용
   let sorted = rows.slice();
@@ -566,21 +608,21 @@ function renderTable(rows) {
       return 0;
     });
     }
-  const table = document.createElement('table');
-  table.className = 'data-table';
+    const table = document.createElement('table');
+    table.className = 'data-table';
   // 페이지 슬라이스
   const startIndex = (adminCurrentPage - 1) * ADMIN_PAGE_SIZE;
   const endIndex = startIndex + ADMIN_PAGE_SIZE;
   const pageRows = sorted.slice(startIndex, endIndex);
 
-  table.innerHTML = `
-    <thead>
-      <tr>
+    table.innerHTML = `
+        <thead>
+            <tr>
         <th><input type="checkbox" id="select-all-checkbox" /></th>
         <th></th><th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
-      </tr>
-    </thead>
-    <tbody>
+            </tr>
+        </thead>
+        <tbody>
       ${pageRows.map(v => `
         <tr data-id="${v.id}">
           <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
@@ -591,15 +633,15 @@ function renderTable(rows) {
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
           <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; const hasT = !!(v.transcript_text && String(v.transcript_text).trim().length > 0); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; if (hasT) return '<span class="group-tag" style="background:#3b82f6;">대본있음</span>'; return ''; })()}</td>
-          <td class="action-buttons">
+                    <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
-          </td>
-        </tr>
-      `).join('')}
+                    </td>
+                </tr>
+            `).join('')}
     </tbody>`;
-  dataTableContainer.innerHTML = '';
-  dataTableContainer.appendChild(table);
+    dataTableContainer.innerHTML = '';
+    dataTableContainer.appendChild(table);
   const selectAll = document.getElementById('select-all-checkbox');
   if (selectAll) selectAll.addEventListener('change', (e) => {
     document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = e.target.checked; });
@@ -734,26 +776,26 @@ const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
 
 async function openEditModal(id) {
-  docIdToEdit = id;
+    docIdToEdit = id;
   const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
   if (error || !data) return;
   const obj = data;
-  editForm.innerHTML = '';
+        editForm.innerHTML = '';
   Object.keys(obj).sort().forEach((key) => {
     const raw = obj[key];
-    const isObject = raw && typeof raw === 'object';
-    const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
-    const isLong = String(value).length > 100 || isObject;
-    editForm.innerHTML += `
-      <div class="form-group">
+            const isObject = raw && typeof raw === 'object';
+            const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
+            const isLong = String(value).length > 100 || isObject;
+            editForm.innerHTML += `
+                <div class="form-group">
         <label for="edit-${key}">${escapeHtml(key)}</label>
-        ${isLong
+                    ${isLong
           ? `<textarea id="edit-${key}" name="${escapeHtml(key)}" style="min-height:120px;">${escapeHtml(String(value))}</textarea>`
           : `<input type="text" id="edit-${key}" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}">`}
       </div>`;
-  });
-  editModal.classList.remove('hidden');
-}
+        });
+        editModal.classList.remove('hidden');
+    }
 
 function closeEditModal() { editModal.classList.add('hidden'); }
 cancelEditBtn.addEventListener('click', closeEditModal);
@@ -761,13 +803,13 @@ closeEditModalBtn.addEventListener('click', closeEditModal);
 
 saveEditBtn.addEventListener('click', async () => {
   const updated = {};
-  new FormData(editForm).forEach((value, key) => {
+    new FormData(editForm).forEach((value, key) => {
     try { updated[key] = (/^\s*\[|\{/.test(String(value))) ? JSON.parse(value) : value; }
     catch { updated[key] = value; }
   });
   await supabase.from('videos').update(updated).eq('id', docIdToEdit);
-  closeEditModal();
-  fetchAndDisplayData();
+    closeEditModal();
+    fetchAndDisplayData();
 });
 
 // ---------- CRUD: Delete ----------
@@ -780,33 +822,33 @@ const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
 function openConfirmModal(id, bulk) {
   isBulkDelete = !!bulk;
   if (isBulkDelete) {
-    confirmModalTitle.textContent = '선택 삭제 확인';
+        confirmModalTitle.textContent = '선택 삭제 확인';
     confirmModalMessage.textContent = '선택된 항목들을 삭제하시겠습니까?';
-  } else {
+    } else {
     docIdToEdit = id;
-    confirmModalTitle.textContent = '삭제 확인';
-    confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
-  }
-  confirmModal.classList.remove('hidden');
+        confirmModalTitle.textContent = '삭제 확인';
+        confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
+    }
+    confirmModal.classList.remove('hidden');
 }
 function closeConfirmModal() { confirmModal.classList.add('hidden'); }
 cancelDeleteBtn.addEventListener('click', closeConfirmModal);
 
 confirmDeleteBtn.addEventListener('click', async () => {
-  if (isBulkDelete) {
+    if (isBulkDelete) {
     const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
     if (ids.length) await supabase.from('videos').delete().in('id', ids);
-  } else {
+    } else {
     await supabase.from('videos').delete().eq('id', docIdToEdit);
-  }
-  closeConfirmModal();
-  fetchAndDisplayData();
+    }
+    closeConfirmModal();
+    fetchAndDisplayData();
 });
 
 bulkDeleteBtn.addEventListener('click', () => {
   const anyChecked = document.querySelector('.row-checkbox:checked');
   if (!anyChecked) { alert('삭제할 항목을 선택하세요.'); return; }
-  openConfirmModal(null, true);
+        openConfirmModal(null, true);
 });
 
 // ---------- Upload ----------
@@ -834,7 +876,7 @@ uploadBtn.addEventListener('click', () => {
   const ext = (selectedFile.name.split('.').pop() || '').toLowerCase();
   if (ext === 'csv') {
     Papa.parse(selectedFile, { header: true, skipEmptyLines: true, complete: (res) => processDataAndUpload(res.data), error: (err) => { uploadStatus.textContent = 'CSV 파싱 오류: ' + err.message; uploadStatus.style.color='red'; } });
-  } else {
+    } else {
     const reader = new FileReader(); reader.onload = (e) => {
       try { const wb = XLSX.read(e.target.result, { type: 'array' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); processDataAndUpload(rows); }
       catch (err) { uploadStatus.textContent = 'XLSX 파싱 오류: ' + (err?.message || err); uploadStatus.style.color='red'; }
@@ -1071,14 +1113,14 @@ if (exportJsonBtn) {
         await supabase.from('system').upsert({ id: 'settings', videos_json_url: publicUrl, last_build: new Date().toISOString() }, { onConflict: 'id' });
         exportStatus.textContent = `✅ ${rows.length}개 JSON 내보내기 및 업로드 완료`;
         exportStatus.style.color = 'green';
-      } catch (e) {
+        } catch (e) {
         exportStatus.textContent = `다운로드 완료, 업로드 실패: ${e?.message || e}`;
         exportStatus.style.color = 'orange';
       }
     } catch (e) {
       exportStatus.style.display = 'block'; exportStatus.textContent = '❌ 내보내기 실패: ' + (e?.message || e); exportStatus.style.color = 'red';
-    }
-  });
+        }
+    });
 }
 
 // ---------- Schedules ----------
@@ -1145,46 +1187,46 @@ async function cancelSchedule(id) {
 }
 
 function renderSchedulesTable(rows) {
-  if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
-  const html = `
+    if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
+    const html = `
     <table class="data-table">
-      <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
-      <tbody>
-        ${rows.map(r => `
-        <tr data-id="${r.id}">
-          <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
-          <td>${r.id}</td>
+        <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
+        <tbody>
+            ${rows.map(r => `
+            <tr data-id="${r.id}">
+                <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
+                <td>${r.id}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
-        </tr>`).join('')}
-      </tbody>
+            </tr>`).join('')}
+        </tbody>
     </table>`;
-  schedulesTableContainer.innerHTML = html;
+    schedulesTableContainer.innerHTML = html;
   document.getElementById('sched-select-all')?.addEventListener('change', (e) => {
-    document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
-  });
+        document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
+    });
 }
 
 async function refreshSchedulesUI() {
-  const rows = await listSchedules();
+    const rows = await listSchedules();
   renderSchedulesTable(rows);
 }
 
 scheduleCreateBtn?.addEventListener('click', async () => {
-  const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
-  const runAtStr = scheduleTimeInput?.value || '';
-  if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
-  const runAt = new Date(runAtStr).getTime();
+        const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
+        const runAtStr = scheduleTimeInput?.value || '';
+        if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
+        const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-  let ids = [];
-  if (scope === 'selected') {
+        let ids = [];
+        if (scope === 'selected') {
     ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-    if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
-  }
-  scheduleCreateStatus.textContent = '예약 등록 중...';
+            if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
+        }
+        scheduleCreateStatus.textContent = '예약 등록 중...';
   try { const id = await createSchedule(scope, ids, runAt); scheduleCreateStatus.textContent = `예약 등록 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '예약 등록 실패: ' + (e?.message || e); }
 });
@@ -1194,7 +1236,7 @@ scheduleRankingBtn?.addEventListener('click', async () => {
   if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
   const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-  scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
+        scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
   try { const id = await createSchedule('all', [], runAt, 'ranking'); scheduleCreateStatus.textContent = `랭킹 예약 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '등록 실패: ' + (e?.message || e); }
 });
@@ -1206,18 +1248,18 @@ rankingRefreshNowBtn?.addEventListener('click', async () => {
 });
 
 schedulesTableContainer?.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.btn-cancel-schedule');
+        const btn = e.target.closest('.btn-cancel-schedule');
   if (!btn) return;
   await cancelSchedule(btn.getAttribute('data-id'));
-  await refreshSchedulesUI();
-});
+            await refreshSchedulesUI();
+    });
 
 schedulesBulkDeleteBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
+        const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
+        if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
   await supabase.from('schedules').delete().in('id', ids);
-  await refreshSchedulesUI();
-});
+        await refreshSchedulesUI();
+    });
 
 // ---------- Analysis helpers ----------
 function getTranscriptServerUrl() {
@@ -1228,6 +1270,15 @@ function showAnalysisBanner(msg) {
   if (analysisBannerText) analysisBannerText.textContent = msg || '';
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
+  
+  // 배너 상태를 localStorage에 저장
+  try {
+    localStorage.setItem('analysis_banner_state', JSON.stringify({
+      visible: true,
+      message: msg || '',
+      timestamp: Date.now()
+    }));
+  } catch {}
 }
 
 function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
@@ -1240,11 +1291,15 @@ function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
     setTimeout(() => {
       analysisBanner?.classList.add('hidden');
       if (analysisLogEl) analysisLogEl.textContent = '';
+      // localStorage에서 상태 제거
+      try { localStorage.removeItem('analysis_banner_state'); } catch {}
     }, 3000);
   } else {
     // 즉시 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
+    // localStorage에서 상태 제거
+    try { localStorage.removeItem('analysis_banner_state'); } catch {}
   }
 }
 let ABORT_CURRENT = false;
@@ -1259,6 +1314,9 @@ stopCurrentBtn?.addEventListener('click', () => {
   
   // 즉시 로그 추가
   appendAnalysisLog('중단 요청됨. 진행 중인 작업을 중지합니다...');
+  
+  // localStorage 정리
+  try { localStorage.removeItem('analysis_banner_state'); } catch {}
   
   // 배너와 상태 메시지 즉시 숨김
   setTimeout(() => {
@@ -1299,6 +1357,13 @@ function updateAnalysisProgress(done, total, suffix) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
   if (analysisBannerText) analysisBannerText.textContent = `진행률 ${done}/${total} (${pct}%)` + (suffix ? ` — ${suffix}` : '');
+  
+  // 진행 상태를 localStorage에 저장
+  try {
+    const state = JSON.parse(localStorage.getItem('analysis_banner_state') || '{}');
+    state.progress = { done, total, pct, suffix };
+    localStorage.setItem('analysis_banner_state', JSON.stringify(state));
+  } catch {}
 }
 function appendAnalysisLog(line) {
   if (!analysisLogEl) return; const t = new Date().toLocaleTimeString();
@@ -1306,7 +1371,7 @@ function appendAnalysisLog(line) {
 }
 
 async function fetchTranscriptByUrl(youtubeUrl) {
-  const server = getTranscriptServerUrl();
+    const server = getTranscriptServerUrl();
     // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
     const url = server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en';
     const res = await fetch(url);
@@ -1316,8 +1381,8 @@ async function fetchTranscriptByUrl(youtubeUrl) {
       const msg = 'Transcript fetch failed: ' + res.status + (reason ? (' ' + reason) : '');
       throw new Error(msg);
     }
-  const data = await res.json();
-  return data.text || '';
+    const data = await res.json();
+    return data.text || '';
 }
 
 // --- YouTube API helpers (분리된 기능)
@@ -1716,7 +1781,7 @@ async function runAnalysisForIds(ids, opts = {}) {
   // 완료 처리
   const finalMsg = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`;
   analysisStatus.textContent = finalMsg;
-  analysisStatus.style.color = failed ? 'orange' : 'green';
+    analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `완료`);
   isAnalysisRunning = false;  // 분석 종료 플래그
   
@@ -1740,7 +1805,7 @@ runAnalysisSelectedBtn?.addEventListener('click', async () => {
 });
 
 runAnalysisAllBtn?.addEventListener('click', async () => {
-  const ids = currentData.map(v => v.id);
+        const ids = currentData.map(v => v.id);
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
   if (!BULK_SILENT) {
   const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
