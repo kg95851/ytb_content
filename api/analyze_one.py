@@ -149,7 +149,8 @@ if _load_sb is None or _analyze_video is None:
                     url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                     
                     try:
-                        res = requests.post(url, json=payload, timeout=120)
+                        # Balanced timeout: 3 minutes for stable LLM responses without excessive waiting
+                        res = requests.post(url, json=payload, timeout=180)
                         
                         if res.status_code == 429:
                             # Rate limited - DO NOT SAVE ERROR RESPONSE
