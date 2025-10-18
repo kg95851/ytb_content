@@ -149,8 +149,8 @@ if _load_sb is None or _analyze_video is None:
                     url = f"{base}/{api_ver}/{model}:generateContent?key={api_key}"
                     
                     try:
-                        # Balanced timeout: 3 minutes for stable LLM responses without excessive waiting
-                        res = requests.post(url, json=payload, timeout=180)
+                        # Reduced timeout for Vercel Pro: 55 seconds max
+                        res = requests.post(url, json=payload, timeout=55)
                         
                         if res.status_code == 429:
                             # Rate limited - DO NOT SAVE ERROR RESPONSE
@@ -467,6 +467,68 @@ if _load_sb is None or _analyze_video is None:
             out = []
         return out
 
+    def _analyze_patterns_only(doc):  # type: ignore
+        """Phase 2: Analyze only the 4 detailed patterns"""
+        transcript = (doc or {}).get('transcript_text') or ''
+        if not transcript:
+            return {}
+        
+        # Already have basic analysis, now get detailed patterns
+        max_chars = 8000  # Less text for phase 2
+        tshort = transcript if len(transcript) <= max_chars else transcript[:max_chars]
+        
+        results = {}
+        
+        # Detailed patterns prompt (simpler, focused)
+        patterns_prompt = """대본을 분석하여 다음 4가지 패턴을 구체적으로 추출하세요. 
+각 항목마다 실제 대본에서 인용하여 예시를 포함하세요.
+
+JSON 형식으로만 출력:
+{
+  "core_materials": ["핵심 소재 3-5개 (예: '펜타킬', '3대5 상황' 등)"],
+  "lang_patterns": ["반복 언어 패턴 3-5개와 실제 인용 (예: '미친' - '미친 3대5 펜타킬')"],
+  "emotion_points": ["감정 몰입 포인트 3-5개와 해당 대사 (예: [긴장감] - '이게 되나?')"],
+  "info_delivery": ["정보 전달 특징 3-5개와 예시 (예: [게임 용어 사용] - '펜타킬', '탱킹')"]
+}"""
+        
+        try:
+            import time
+            import random
+            time.sleep(1.0 + random.uniform(0, 0.5))  # Small delay
+            
+            resp = _call_gemini(patterns_prompt, tshort)
+            if resp:
+                # Parse response
+                resp_clean = resp.strip()
+                if resp_clean.startswith('```json'):
+                    resp_clean = resp_clean[7:]
+                if resp_clean.startswith('```'):
+                    resp_clean = resp_clean[3:]
+                if resp_clean.endswith('```'):
+                    resp_clean = resp_clean[:-3]
+                resp_clean = resp_clean.strip()
+                
+                try:
+                    parsed = json.loads(resp_clean)
+                    results['material_core_materials'] = parsed.get('core_materials', [])[:10]
+                    results['material_lang_patterns'] = parsed.get('lang_patterns', [])[:10]
+                    results['material_emotion_points'] = parsed.get('emotion_points', [])[:10]
+                    results['material_info_delivery'] = parsed.get('info_delivery', [])[:10]
+                except:
+                    # Fallback
+                    results['material_core_materials'] = ['패턴 분석 실패']
+                    results['material_lang_patterns'] = ['패턴 분석 실패']
+                    results['material_emotion_points'] = ['감정 분석 실패']
+                    results['material_info_delivery'] = ['전달 방식 분석 실패']
+        except Exception as e:
+            print(f"Phase 2 analysis error: {e}")
+            # Return empty to not overwrite existing data
+            return {}
+        
+        # Add timestamp
+        results['last_modified'] = int(time.time() * 1000)
+        return results
+
     def _analyze_video_fast(doc):  # type: ignore
         transcript = (doc or {}).get('transcript_text') or ''
         if not transcript:
@@ -483,26 +545,23 @@ if _load_sb is None or _analyze_video is None:
         # Combine all analyses into ONE LLM call to reduce API calls
         import time
         
-        # Single combined prompt for all analyses (detailed for quality)
-        combined_prompt = """영상 대본을 정밀 분석하여 아래 JSON 형식으로 정확히 출력하세요. 
-반드시 기승전결 4개 파트를 모두 포함해야 합니다. JSON만 출력:
+        # Simplified prompt for phase 1 (faster)
+        combined_prompt = """대본을 빠르게 분석하여 JSON 출력:
 {
-  "material": "영상의 핵심 소재와 주제를 구체적으로 3-5문장으로 요약. 등장인물, 상황, 주요 사건을 포함",
-  "hooking": "첫 1-2문장에서 시청자 호기심을 유발하는 구체적 요소와 기법을 1문장으로 설명",
-  "structure": "기: (구체적 도입 상황 설명), 승: (갈등이나 사건이 전개되는 부분), 전: (반전이나 클라이맥스 부분), 결: (해결이나 마무리 부분)"
+  "material": "핵심 주제 1-2문장 요약",
+  "hooking": "첫 문장 후킹 기법",
+  "structure": "기: (도입), 승: (전개), 전: (클라이맥스), 결: (마무리)"
 }
-중요: structure는 반드시 기, 승, 전, 결 4개 모두 작성하세요.
+JSON만 출력, 간단명료하게:
 
 대본 분석:"""
         
         try:
             # Single API call for all three analyses
-            # Add random jitter to avoid synchronized requests
+            # Minimal delay for phase 1
             import random
-            base_delay = 2.0  # Base delay
-            jitter = random.uniform(0, 1.0)  # Random 0-1 second
-            time.sleep(base_delay + jitter)  # 2-3 seconds total
-            combined_resp = _call_gemini(combined_prompt, tshort[:6000])  # More context for better analysis
+            time.sleep(0.5 + random.uniform(0, 0.5))  # 0.5-1 second only
+            combined_resp = _call_gemini(combined_prompt, tshort[:4000])  # Less text for faster response
             
             # Debug: Log the raw response length
             if combined_resp:
@@ -830,6 +889,7 @@ def analyze_one():
         except Exception:
             body = {}
         vid = str(body.get('id') or '').strip()
+        phase = body.get('phase', 1)  # Default to phase 1
         if not vid:
             return jsonify({ 'ok': False, 'error': 'missing id' }), 400
         stage = 'fetch_video'
@@ -839,8 +899,17 @@ def analyze_one():
             return jsonify({ 'ok': False, 'error': 'not_found' }), 404
         video = rows[0]
         stage = 'analyze'
-        # use faster analyzer
-        updated = _analyze_video_fast(video) or {}
+        
+        # Phase-based analysis for Vercel Pro (60-second limit)
+        if phase == 2:
+            # Phase 2: Only analyze detailed patterns
+            updated = _analyze_patterns_only(video) or {}
+        else:
+            # Phase 1: Basic analysis (material, hooking, structure, dopamine)
+            updated = _analyze_video_fast(video) or {}
+            # Mark that phase 2 is needed if phase 1 succeeded
+            if updated and any(k in updated for k in ['material', 'hooking', 'narrative_structure']):
+                updated['skip_phase2'] = False
         if updated:
             # 스키마에 없는 컬럼은 제거 + None 값 제외
             allowed = set(video.keys())
@@ -877,7 +946,11 @@ def analyze_one():
                     sample_fields[k] = v[:100] + '...' if len(v) > 100 else v
                 else:
                     debug_info[k] = f'{type(v).__name__}'
-        return jsonify({ 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields, 'debug': debug_info })
+        response = { 'ok': True, 'updated': bool(updated), 'saved_keys': saved, 'skipped_keys': skipped, 'sample': sample_fields, 'debug': debug_info }
+        # Add skip_phase2 flag for client
+        if phase == 1 and saved:
+            response['skip_phase2'] = False  # Needs phase 2
+        return jsonify(response)
     except Exception as e:
         app.logger.exception('analyze_one failed')
         return jsonify({ 'ok': False, 'error': str(e), 'stage': locals().get('stage', 'unknown'), 'trace': traceback.format_exc()[:2000] }), 500
