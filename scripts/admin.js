@@ -1829,29 +1829,32 @@ async function runAnalysisForIds(ids, opts = {}) {
   });
   
   // 중단 체크
-  if (aborted) {
+  if (aborted || ABORT_CURRENT) {
     const abortMsg = `분석 중단됨: 처리 ${processed}개 (성공 ${success}, 실패 ${failed}, 스킵 ${skipped})`;
     analysisStatus.textContent = abortMsg;
     analysisStatus.style.color = 'orange';
-    return; // 중단 시 배너 숨김 등은 stopCurrentBtn 핸들러에서 처리
+    // 중단 시에는 배너를 숨기지 않음 - stopCurrentBtn 핸들러에서만 처리
+    return;
   }
   
-  // 완료 처리
+  // 정상 완료 처리 (중단되지 않은 경우에만)
   const finalMsg = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`;
   analysisStatus.textContent = finalMsg;
-    analysisStatus.style.color = failed ? 'orange' : 'green';
+  analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `완료`);
   
-  // 배너 자동 숨김
-  hideAnalysisBanner(true, finalMsg);
-  
-  // 하단 상태 메시지도 3초 후 제거
-  setTimeout(() => {
-    if (analysisStatus) {
-      analysisStatus.style.display = 'none';
-      analysisStatus.textContent = '';
-    }
-  }, 3000);
+  // 정상 완료 시에만 배너 자동 숨김
+  if (!ABORT_CURRENT) {
+    hideAnalysisBanner(true, finalMsg);
+    
+    // 하단 상태 메시지도 3초 후 제거
+    setTimeout(() => {
+      if (analysisStatus && !ABORT_CURRENT) {
+        analysisStatus.style.display = 'none';
+        analysisStatus.textContent = '';
+      }
+    }, 3000);
+  }
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
@@ -1969,25 +1972,31 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
   });
   
   // 중단 체크
-  if (aborted) {
-    return; // 중단 시 stopCurrentBtn 핸들러에서 처리
+  if (aborted || ABORT_CURRENT) {
+    const abortMsg = `대본 추출 중단됨: 성공 ${done}, 실패 ${failed}`;
+    youtubeStatus.textContent = abortMsg;
+    youtubeStatus.style.color = 'orange';
+    // 중단 시에는 배너를 숨기지 않음 - stopCurrentBtn 핸들러에서만 처리
+    return;
   }
   
-  // 완료 처리
+  // 정상 완료 처리 (중단되지 않은 경우에만)
   const finalMsg = `대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 배너 자동 숨김
-  hideAnalysisBanner(true, finalMsg);
-  
-  // 하단 상태 메시지도 3초 후 제거
-  setTimeout(() => {
-    if (youtubeStatus) {
-      youtubeStatus.style.display = 'none';
-      youtubeStatus.textContent = '';
-    }
-  }, 3000);
+  // 정상 완료 시에만 배너 자동 숨김
+  if (!ABORT_CURRENT) {
+    hideAnalysisBanner(true, finalMsg);
+    
+    // 하단 상태 메시지도 3초 후 제거
+    setTimeout(() => {
+      if (youtubeStatus && !ABORT_CURRENT) {
+        youtubeStatus.style.display = 'none';
+        youtubeStatus.textContent = '';
+      }
+    }, 3000);
+  }
   
   // 선택 항목만 가볍게 갱신하여 현재 페이지 유지 (페이지 이동 없음)
   await refreshRowsByIds(ids);
@@ -2053,25 +2062,31 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
   });
   
   // 중단 체크
-  if (aborted) {
-    return; // 중단 시 stopCurrentBtn 핸들러에서 처리
+  if (aborted || ABORT_CURRENT) {
+    const abortMsg = `조회수 갱신 중단됨: 성공 ${done}, 실패 ${failed}`;
+    youtubeStatus.textContent = abortMsg;
+    youtubeStatus.style.color = 'orange';
+    // 중단 시에는 배너를 숨기지 않음 - stopCurrentBtn 핸들러에서만 처리
+    return;
   }
   
-  // 완료 처리
+  // 정상 완료 처리 (중단되지 않은 경우에만)
   const finalMsg = `조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 배너 자동 숨김
-  hideAnalysisBanner(true, finalMsg);
-  
-  // 하단 상태 메시지도 3초 후 제거
-  setTimeout(() => {
-    if (youtubeStatus) {
-      youtubeStatus.style.display = 'none';
-      youtubeStatus.textContent = '';
-    }
-  }, 3000);
+  // 정상 완료 시에만 배너 자동 숨김
+  if (!ABORT_CURRENT) {
+    hideAnalysisBanner(true, finalMsg);
+    
+    // 하단 상태 메시지도 3초 후 제거
+    setTimeout(() => {
+      if (youtubeStatus && !ABORT_CURRENT) {
+        youtubeStatus.style.display = 'none';
+        youtubeStatus.textContent = '';
+      }
+    }, 3000);
+  }
   
   // 선택 항목만 가볍게 갱신하여 현재 페이지 유지
   await refreshRowsByIds(ids);
@@ -2144,7 +2159,7 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
   };
   // 동시성: 서버/대역폭 상황에 따라 조절, 체크포인트는 onItemDone에서 처리
   const conc = Math.max(8, Math.min(12, Number(ytTranscriptConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, {
+  const { done, failed, aborted } = await processInBatches(ids, worker, {
     concurrency: conc,
     onProgress: ({ processed, total, pct, etaFormatted }) => { 
       const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
@@ -2167,21 +2182,32 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
     }
   });
   
-  // 완료 처리
+  // 중단 체크
+  if (aborted || ABORT_CURRENT) {
+    const abortMsg = `전체 대본 추출 중단됨: 성공 ${done}, 실패 ${failed}`;
+    youtubeStatus.textContent = abortMsg;
+    youtubeStatus.style.color = 'orange';
+    // 중단 시에는 배너를 숨기지 않음 - stopCurrentBtn 핸들러에서만 처리
+    return;
+  }
+  
+  // 정상 완료 처리 (중단되지 않은 경우에만)
   const finalMsg = `전체 대본 추출 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 배너 자동 숨김
-  hideAnalysisBanner(true, finalMsg);
-  
-  // 하단 상태 메시지도 3초 후 제거
-  setTimeout(() => {
-    if (youtubeStatus) {
-      youtubeStatus.style.display = 'none';
-      youtubeStatus.textContent = '';
-    }
-  }, 3000);
+  // 정상 완료 시에만 배너 자동 숨김
+  if (!ABORT_CURRENT) {
+    hideAnalysisBanner(true, finalMsg);
+    
+    // 하단 상태 메시지도 3초 후 제거
+    setTimeout(() => {
+      if (youtubeStatus && !ABORT_CURRENT) {
+        youtubeStatus.style.display = 'none';
+        youtubeStatus.textContent = '';
+      }
+    }, 3000);
+  }
   
   // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
   const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
@@ -2263,7 +2289,7 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     appendAnalysisLog(`(${id}) 조회수 ${current.toLocaleString()} 저장`);
   };
   const conc = Math.max(1, Math.min(30, Number(ytViewsConcInput?.value || 10)));
-  const { done, failed } = await processInBatches(ids, worker, { 
+  const { done, failed, aborted } = await processInBatches(ids, worker, { 
     concurrency: conc, 
     onProgress: ({ processed, total, pct, etaFormatted }) => { 
       const eta = etaFormatted ? ` (예상 ${etaFormatted})` : '';
@@ -2272,21 +2298,32 @@ ytViewsAllBtn?.addEventListener('click', async () => {
     } 
   });
   
-  // 완료 처리
+  // 중단 체크
+  if (aborted || ABORT_CURRENT) {
+    const abortMsg = `전체 조회수 갱신 중단됨: 성공 ${done}, 실패 ${failed}`;
+    youtubeStatus.textContent = abortMsg;
+    youtubeStatus.style.color = 'orange';
+    // 중단 시에는 배너를 숨기지 않음 - stopCurrentBtn 핸들러에서만 처리
+    return;
+  }
+  
+  // 정상 완료 처리 (중단되지 않은 경우에만)
   const finalMsg = `전체 조회수 갱신 완료: 성공 ${done}, 실패 ${failed}`;
   youtubeStatus.textContent = finalMsg;
   youtubeStatus.style.color = failed ? 'orange' : 'green';
   
-  // 배너 자동 숨김
-  hideAnalysisBanner(true, finalMsg);
-  
-  // 하단 상태 메시지도 3초 후 제거
-  setTimeout(() => {
-    if (youtubeStatus) {
-      youtubeStatus.style.display = 'none';
-      youtubeStatus.textContent = '';
-    }
-  }, 3000);
+  // 정상 완료 시에만 배너 자동 숨김
+  if (!ABORT_CURRENT) {
+    hideAnalysisBanner(true, finalMsg);
+    
+    // 하단 상태 메시지도 3초 후 제거
+    setTimeout(() => {
+      if (youtubeStatus && !ABORT_CURRENT) {
+        youtubeStatus.style.display = 'none';
+        youtubeStatus.textContent = '';
+      }
+    }, 3000);
+  }
   
   // 현재 페이지의 데이터만 갱신 (페이지 이동 없음)
   const currentPageIds = Array.from(document.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
