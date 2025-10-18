@@ -351,20 +351,20 @@ const loginDebug = document.getElementById('login-debug');
 async function refreshAuthUI() {
   const { data: { session } } = await supabase.auth.getSession();
   if (session) {
-    loginView.classList.add('hidden');
-    adminPanel.classList.remove('hidden');
-    fetchAndDisplayData();
+        loginView.classList.add('hidden');
+        adminPanel.classList.remove('hidden');
+        fetchAndDisplayData();
     refreshSchedulesUI();
-  } else {
-    loginView.classList.remove('hidden');
-    adminPanel.classList.add('hidden');
-  }
+    } else {
+        loginView.classList.remove('hidden');
+        adminPanel.classList.add('hidden');
+    }
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
   geminiKeyStatus && (geminiKeyStatus.textContent = '');
   try {
     if (loginDebug) { loginDebug.style.display='block'; loginDebug.textContent = '';
@@ -449,17 +449,35 @@ window.addEventListener('DOMContentLoaded', () => {
     try { adminSortMode = st.sort || 'update_desc'; } catch {}
     try { adminCurrentPage = Math.max(1, Number(st.page || 1)); } catch {}
   }
+  
+  // 진행 중인 배너 상태 복원
+  try {
+    const bannerState = sessionStorage.getItem('analysis_banner_state');
+    if (bannerState) {
+      const state = JSON.parse(bannerState);
+      // 10분 이내의 상태만 복원 (오래된 것은 무시)
+      if (state.visible && (Date.now() - state.timestamp < 10 * 60 * 1000)) {
+        analysisBanner?.classList.remove('hidden');
+        if (analysisBannerText) analysisBannerText.textContent = state.message || '작업 진행 중...';
+        if (analysisProgressBar) analysisProgressBar.style.width = '50%'; // 중간 진행률로 표시
+        CURRENT_TASK_NAME = state.taskName || '';
+      } else {
+        sessionStorage.removeItem('analysis_banner_state');
+      }
+    }
+  } catch {}
+  
   refreshAuthUI();
 });
 
 // ---------- Tabs ----------
 tabs.addEventListener('click', (e) => {
   if (!e.target.classList.contains('tab-link')) return;
-  const tabId = e.target.getAttribute('data-tab');
+        const tabId = e.target.getAttribute('data-tab');
   tabLinks.forEach(l => l.classList.remove('active'));
   tabContents.forEach(c => c.classList.remove('active'));
-  e.target.classList.add('active');
-  document.getElementById(tabId).classList.add('active');
+        e.target.classList.add('active');
+        document.getElementById(tabId).classList.add('active');
 });
 
 // ---------- CRUD: Read/Render ----------
@@ -530,8 +548,8 @@ async function fetchAndDisplayData() {
 
 function renderTable(rows) {
   if (!rows?.length) {
-    dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
-    return;
+        dataTableContainer.innerHTML = '<p class="info-message">표시할 데이터가 없습니다.</p>';
+        return;
   }
   // 정렬 적용
   let sorted = rows.slice();
@@ -553,21 +571,21 @@ function renderTable(rows) {
       return 0;
     });
     }
-  const table = document.createElement('table');
-  table.className = 'data-table';
+    const table = document.createElement('table');
+    table.className = 'data-table';
   // 페이지 슬라이스
   const startIndex = (adminCurrentPage - 1) * ADMIN_PAGE_SIZE;
   const endIndex = startIndex + ADMIN_PAGE_SIZE;
   const pageRows = sorted.slice(startIndex, endIndex);
 
-  table.innerHTML = `
-    <thead>
-      <tr>
+    table.innerHTML = `
+        <thead>
+            <tr>
         <th><input type="checkbox" id="select-all-checkbox" /></th>
         <th></th><th>썸네일</th><th>제목</th><th>채널</th><th>게시일</th><th>업데이트</th><th>상태</th><th>관리</th>
-      </tr>
-    </thead>
-    <tbody>
+            </tr>
+        </thead>
+        <tbody>
       ${pageRows.map(v => `
         <tr data-id="${v.id}">
           <td><input type="checkbox" class="row-checkbox" data-id="${v.id}"></td>
@@ -578,15 +596,15 @@ function renderTable(rows) {
           <td>${escapeHtml(v.date || '')}</td>
           <td>${escapeHtml(v.update_date || '')}</td>
           <td>${(() => { const analyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure; const noT = v.transcript_unavailable === true; const hasT = !!(v.transcript_text && String(v.transcript_text).trim().length > 0); if (analyzed) return '<span class="group-tag" style="background:#10b981;">분석완료</span>'; if (noT) return '<span class="group-tag" style="background:#6b7280;">대본없음</span>'; if (hasT) return '<span class="group-tag" style="background:#3b82f6;">대본있음</span>'; return ''; })()}</td>
-          <td class="action-buttons">
+                    <td class="action-buttons">
             <button class="btn btn-edit" data-id="${v.id}">수정</button>
             <button class="btn btn-danger single-delete-btn" data-id="${v.id}">삭제</button>
-          </td>
-        </tr>
-      `).join('')}
+                    </td>
+                </tr>
+            `).join('')}
     </tbody>`;
-  dataTableContainer.innerHTML = '';
-  dataTableContainer.appendChild(table);
+    dataTableContainer.innerHTML = '';
+    dataTableContainer.appendChild(table);
   const selectAll = document.getElementById('select-all-checkbox');
   if (selectAll) selectAll.addEventListener('change', (e) => {
     document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = e.target.checked; });
@@ -721,26 +739,26 @@ const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
 
 async function openEditModal(id) {
-  docIdToEdit = id;
+    docIdToEdit = id;
   const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
   if (error || !data) return;
   const obj = data;
-  editForm.innerHTML = '';
+        editForm.innerHTML = '';
   Object.keys(obj).sort().forEach((key) => {
     const raw = obj[key];
-    const isObject = raw && typeof raw === 'object';
-    const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
-    const isLong = String(value).length > 100 || isObject;
-    editForm.innerHTML += `
-      <div class="form-group">
+            const isObject = raw && typeof raw === 'object';
+            const value = isObject ? JSON.stringify(raw, null, 2) : (raw ?? '');
+            const isLong = String(value).length > 100 || isObject;
+            editForm.innerHTML += `
+                <div class="form-group">
         <label for="edit-${key}">${escapeHtml(key)}</label>
-        ${isLong
+                    ${isLong
           ? `<textarea id="edit-${key}" name="${escapeHtml(key)}" style="min-height:120px;">${escapeHtml(String(value))}</textarea>`
           : `<input type="text" id="edit-${key}" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}">`}
       </div>`;
-  });
-  editModal.classList.remove('hidden');
-}
+        });
+        editModal.classList.remove('hidden');
+    }
 
 function closeEditModal() { editModal.classList.add('hidden'); }
 cancelEditBtn.addEventListener('click', closeEditModal);
@@ -748,13 +766,13 @@ closeEditModalBtn.addEventListener('click', closeEditModal);
 
 saveEditBtn.addEventListener('click', async () => {
   const updated = {};
-  new FormData(editForm).forEach((value, key) => {
+    new FormData(editForm).forEach((value, key) => {
     try { updated[key] = (/^\s*\[|\{/.test(String(value))) ? JSON.parse(value) : value; }
     catch { updated[key] = value; }
   });
   await supabase.from('videos').update(updated).eq('id', docIdToEdit);
-  closeEditModal();
-  fetchAndDisplayData();
+    closeEditModal();
+    fetchAndDisplayData();
 });
 
 // ---------- CRUD: Delete ----------
@@ -767,33 +785,33 @@ const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
 function openConfirmModal(id, bulk) {
   isBulkDelete = !!bulk;
   if (isBulkDelete) {
-    confirmModalTitle.textContent = '선택 삭제 확인';
+        confirmModalTitle.textContent = '선택 삭제 확인';
     confirmModalMessage.textContent = '선택된 항목들을 삭제하시겠습니까?';
-  } else {
+    } else {
     docIdToEdit = id;
-    confirmModalTitle.textContent = '삭제 확인';
-    confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
-  }
-  confirmModal.classList.remove('hidden');
+        confirmModalTitle.textContent = '삭제 확인';
+        confirmModalMessage.textContent = '정말로 삭제하시겠습니까?';
+    }
+    confirmModal.classList.remove('hidden');
 }
 function closeConfirmModal() { confirmModal.classList.add('hidden'); }
 cancelDeleteBtn.addEventListener('click', closeConfirmModal);
 
 confirmDeleteBtn.addEventListener('click', async () => {
-  if (isBulkDelete) {
+    if (isBulkDelete) {
     const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
     if (ids.length) await supabase.from('videos').delete().in('id', ids);
-  } else {
+    } else {
     await supabase.from('videos').delete().eq('id', docIdToEdit);
-  }
-  closeConfirmModal();
-  fetchAndDisplayData();
+    }
+    closeConfirmModal();
+    fetchAndDisplayData();
 });
 
 bulkDeleteBtn.addEventListener('click', () => {
   const anyChecked = document.querySelector('.row-checkbox:checked');
   if (!anyChecked) { alert('삭제할 항목을 선택하세요.'); return; }
-  openConfirmModal(null, true);
+        openConfirmModal(null, true);
 });
 
 // ---------- Upload ----------
@@ -821,7 +839,7 @@ uploadBtn.addEventListener('click', () => {
   const ext = (selectedFile.name.split('.').pop() || '').toLowerCase();
   if (ext === 'csv') {
     Papa.parse(selectedFile, { header: true, skipEmptyLines: true, complete: (res) => processDataAndUpload(res.data), error: (err) => { uploadStatus.textContent = 'CSV 파싱 오류: ' + err.message; uploadStatus.style.color='red'; } });
-  } else {
+    } else {
     const reader = new FileReader(); reader.onload = (e) => {
       try { const wb = XLSX.read(e.target.result, { type: 'array' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); processDataAndUpload(rows); }
       catch (err) { uploadStatus.textContent = 'XLSX 파싱 오류: ' + (err?.message || err); uploadStatus.style.color='red'; }
@@ -1058,14 +1076,14 @@ if (exportJsonBtn) {
         await supabase.from('system').upsert({ id: 'settings', videos_json_url: publicUrl, last_build: new Date().toISOString() }, { onConflict: 'id' });
         exportStatus.textContent = `✅ ${rows.length}개 JSON 내보내기 및 업로드 완료`;
         exportStatus.style.color = 'green';
-      } catch (e) {
+        } catch (e) {
         exportStatus.textContent = `다운로드 완료, 업로드 실패: ${e?.message || e}`;
         exportStatus.style.color = 'orange';
       }
     } catch (e) {
       exportStatus.style.display = 'block'; exportStatus.textContent = '❌ 내보내기 실패: ' + (e?.message || e); exportStatus.style.color = 'red';
-    }
-  });
+        }
+    });
 }
 
 // ---------- Schedules ----------
@@ -1132,46 +1150,46 @@ async function cancelSchedule(id) {
 }
 
 function renderSchedulesTable(rows) {
-  if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
-  const html = `
+    if (!rows.length) { schedulesTableContainer.innerHTML = '<p class="info-message">예약이 없습니다.</p>'; return; }
+    const html = `
     <table class="data-table">
-      <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
-      <tbody>
-        ${rows.map(r => `
-        <tr data-id="${r.id}">
-          <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
-          <td>${r.id}</td>
+        <thead><tr><th><input type="checkbox" id="sched-select-all"></th><th>ID</th><th>작업</th><th>대상</th><th>실행 시각</th><th>상태</th><th>관리</th></tr></thead>
+        <tbody>
+            ${rows.map(r => `
+            <tr data-id="${r.id}">
+                <td><input type="checkbox" class="sched-row" data-id="${r.id}"></td>
+                <td>${r.id}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.type === 'ranking' ? '랭킹' : '분석'; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.scope === 'all' ? '전체' : `선택(${(c.remainingIds||[]).length})`; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.runAtIso ? new Date(c.runAtIso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status; })()}</td>
           <td>${(() => { const c = parseScheduleContent(r); return c.status === 'pending' ? `<button class="btn btn-danger btn-cancel-schedule" data-id="${r.id}">취소</button>` : ''; })()}</td>
-        </tr>`).join('')}
-      </tbody>
+            </tr>`).join('')}
+        </tbody>
     </table>`;
-  schedulesTableContainer.innerHTML = html;
+    schedulesTableContainer.innerHTML = html;
   document.getElementById('sched-select-all')?.addEventListener('change', (e) => {
-    document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
-  });
+        document.querySelectorAll('.sched-row').forEach(cb => { cb.checked = e.target.checked; });
+    });
 }
 
 async function refreshSchedulesUI() {
-  const rows = await listSchedules();
+    const rows = await listSchedules();
   renderSchedulesTable(rows);
 }
 
 scheduleCreateBtn?.addEventListener('click', async () => {
-  const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
-  const runAtStr = scheduleTimeInput?.value || '';
-  if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
-  const runAt = new Date(runAtStr).getTime();
+        const scope = (document.querySelector('input[name="schedule-scope"]:checked')?.value) || 'selected';
+        const runAtStr = scheduleTimeInput?.value || '';
+        if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
+        const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-  let ids = [];
-  if (scope === 'selected') {
+        let ids = [];
+        if (scope === 'selected') {
     ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
-    if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
-  }
-  scheduleCreateStatus.textContent = '예약 등록 중...';
+            if (!ids.length) { scheduleCreateStatus.textContent = '선택 항목이 없습니다.'; return; }
+        }
+        scheduleCreateStatus.textContent = '예약 등록 중...';
   try { const id = await createSchedule(scope, ids, runAt); scheduleCreateStatus.textContent = `예약 등록 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '예약 등록 실패: ' + (e?.message || e); }
 });
@@ -1181,7 +1199,7 @@ scheduleRankingBtn?.addEventListener('click', async () => {
   if (!runAtStr) { scheduleCreateStatus.textContent = '실행 시각을 선택하세요.'; return; }
   const runAt = new Date(runAtStr).getTime();
   if (!isFinite(runAt) || runAt < Date.now() + 30000) { scheduleCreateStatus.textContent = '현재 시각 + 30초 이후로 설정.'; return; }
-  scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
+        scheduleCreateStatus.textContent = '랭킹 예약 등록 중...';
   try { const id = await createSchedule('all', [], runAt, 'ranking'); scheduleCreateStatus.textContent = `랭킹 예약 완료: ${id}`; await refreshSchedulesUI(); }
   catch (e) { scheduleCreateStatus.textContent = '등록 실패: ' + (e?.message || e); }
 });
@@ -1193,18 +1211,18 @@ rankingRefreshNowBtn?.addEventListener('click', async () => {
 });
 
 schedulesTableContainer?.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.btn-cancel-schedule');
+        const btn = e.target.closest('.btn-cancel-schedule');
   if (!btn) return;
   await cancelSchedule(btn.getAttribute('data-id'));
-  await refreshSchedulesUI();
-});
+            await refreshSchedulesUI();
+    });
 
 schedulesBulkDeleteBtn?.addEventListener('click', async () => {
-  const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
-  if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
+        const ids = Array.from(document.querySelectorAll('.sched-row:checked')).map(cb => cb.getAttribute('data-id'));
+        if (!ids.length) { alert('삭제할 예약을 선택하세요.'); return; }
   await supabase.from('schedules').delete().in('id', ids);
-  await refreshSchedulesUI();
-});
+        await refreshSchedulesUI();
+    });
 
 // ---------- Analysis helpers ----------
 function getTranscriptServerUrl() {
@@ -1215,6 +1233,16 @@ function showAnalysisBanner(msg) {
   if (analysisBannerText) analysisBannerText.textContent = msg || '';
   if (analysisProgressBar) analysisProgressBar.style.width = '0%';
   if (analysisLogEl) analysisLogEl.textContent = '';
+  
+  // 진행 상태를 sessionStorage에 저장
+  try {
+    sessionStorage.setItem('analysis_banner_state', JSON.stringify({
+      visible: true,
+      message: msg || '',
+      timestamp: Date.now(),
+      taskName: CURRENT_TASK_NAME || ''
+    }));
+  } catch {}
 }
 
 function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
@@ -1227,11 +1255,15 @@ function hideAnalysisBanner(showCompleteMsg = true, msg = '') {
     setTimeout(() => {
       analysisBanner?.classList.add('hidden');
       if (analysisLogEl) analysisLogEl.textContent = '';
+      // 배너 숨김 시 sessionStorage에서 제거
+      try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     }, 3000);
-  } else {
+                } else {
     // 즉시 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
+    // 배너 숨김 시 sessionStorage에서 제거
+    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
   }
 }
 let ABORT_CURRENT = false;
@@ -1251,6 +1283,9 @@ stopCurrentBtn?.addEventListener('click', () => {
     // 배너 숨김
     analysisBanner?.classList.add('hidden');
     if (analysisLogEl) analysisLogEl.textContent = '';
+    
+    // sessionStorage에서 배너 상태 제거
+    try { sessionStorage.removeItem('analysis_banner_state'); } catch {}
     
     // 하단 상태 메시지들 숨김
     if (analysisStatus) {
@@ -1284,7 +1319,19 @@ function formatTimeKorean(seconds) {
 function updateAnalysisProgress(done, total, suffix) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   if (analysisProgressBar) analysisProgressBar.style.width = pct + '%';
-  if (analysisBannerText) analysisBannerText.textContent = `진행률 ${done}/${total} (${pct}%)` + (suffix ? ` — ${suffix}` : '');
+  const message = `진행률 ${done}/${total} (${pct}%)` + (suffix ? ` — ${suffix}` : '');
+  if (analysisBannerText) analysisBannerText.textContent = message;
+  
+  // sessionStorage 업데이트
+  try {
+    const existing = sessionStorage.getItem('analysis_banner_state');
+    if (existing) {
+      const state = JSON.parse(existing);
+      state.message = message;
+      state.progress = pct;
+      sessionStorage.setItem('analysis_banner_state', JSON.stringify(state));
+    }
+  } catch {}
 }
 function appendAnalysisLog(line) {
   if (!analysisLogEl) return; const t = new Date().toLocaleTimeString();
@@ -1292,7 +1339,7 @@ function appendAnalysisLog(line) {
 }
 
 async function fetchTranscriptByUrl(youtubeUrl) {
-  const server = getTranscriptServerUrl();
+    const server = getTranscriptServerUrl();
     // STT fallback는 기본 비활성화; 네트워크 사용량 절감을 위해 명시적 요청 시만 활성화 (?stt=1)
     const url = server.replace(/\/$/, '') + '/transcript?url=' + encodeURIComponent(youtubeUrl) + '&lang=ko,en';
     const res = await fetch(url);
@@ -1302,8 +1349,8 @@ async function fetchTranscriptByUrl(youtubeUrl) {
       const msg = 'Transcript fetch failed: ' + res.status + (reason ? (' ' + reason) : '');
       throw new Error(msg);
     }
-  const data = await res.json();
-  return data.text || '';
+    const data = await res.json();
+    return data.text || '';
 }
 
 // --- YouTube API helpers (분리된 기능)
@@ -1374,16 +1421,57 @@ async function processInBatches(ids, worker, { concurrency = 6, onProgress, onIt
   let i = 0; let inFlight = 0; let done = 0; let failed = 0; let nextKeyIndex = 0; let startedAt = Date.now();
   const keys = getStoredKeysForRotation();
     const results = [];
+  
+  // 키 사용 통계 추적
+  const keyUsage = new Map();
+  keys.forEach((k, idx) => keyUsage.set(idx, 0));
+  
+  // 10개마다 키 사용 통계 출력
+  let requestCount = 0;
+  
   return await new Promise((resolve) => {
     const pump = () => {
       // 중단 체크
       if (ABORT_CURRENT) {
+        // 키 사용 통계 최종 출력
+        if (keys.length > 1) {
+          console.log('=== 키 사용 통계 (중단) ===');
+          keyUsage.forEach((count, idx) => {
+            console.log(`Key ${idx + 1}: ${count}회 사용`);
+          });
+        }
         return resolve({ done, failed, results, aborted: true });
       }
-      if (done + failed >= ids.length && inFlight === 0) return resolve({ done, failed, results });
+      if (done + failed >= ids.length && inFlight === 0) {
+        // 키 사용 통계 최종 출력
+        if (keys.length > 1) {
+          console.log('=== 최종 키 사용 통계 ===');
+          keyUsage.forEach((count, idx) => {
+            console.log(`Key ${idx + 1}: ${count}회 사용`);
+          });
+        }
+        return resolve({ done, failed, results });
+      }
       while (inFlight < concurrency && i < ids.length && !ABORT_CURRENT) {
         const id = ids[i++];
-        const key = keys.length ? keys[nextKeyIndex++ % keys.length] : '';
+        const keyIndex = nextKeyIndex % keys.length;
+        const key = keys.length ? keys[keyIndex] : '';
+        nextKeyIndex++;
+        
+        // 키 사용 카운트
+        if (keys.length > 0) {
+          keyUsage.set(keyIndex, (keyUsage.get(keyIndex) || 0) + 1);
+          requestCount++;
+          
+          // 10개마다 통계 출력
+          if (requestCount % 10 === 0 && keys.length > 1) {
+            console.log(`[${requestCount}번째 요청] 키 로테이션 상태:`);
+            keyUsage.forEach((count, idx) => {
+              console.log(`  Key ${idx + 1}/${keys.length}: ${count}회`);
+            });
+          }
+        }
+        
         inFlight++;
         worker(id, key)
           .then((r) => { results.push(r); done++; if (typeof onItemDone === 'function') { try { onItemDone(id, true, r); } catch {} } })
@@ -1613,45 +1701,99 @@ async function runAnalysisForIds(ids, opts = {}) {
       if (!hasT) { appendAnalysisLog(`(${id}) 스킵: 최종확인 대본 없음`); return { skip: true }; }
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
-    const res = await fetchWithTimeout('/api/analyze_one', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }, 180000);
-    let j = null; try { j = await res.json(); } catch {}
-    if (!res.ok) {
-      const stage = j && j.stage ? j.stage : '';
-      const err = j && j.error ? j.error : '';
-      const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
-      appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
-      if (trace) appendAnalysisLog(`trace: ${trace}`);
-      // 환경 변수 진단(간헐)
+    
+    // 429 에러 시 재시도 로직
+    let lastError = null;
+    let retryCount = 0;
+    const maxRetries = 2; // 최대 2번 재시도 (총 3번 시도)
+    
+    while (retryCount <= maxRetries) {
       try {
-        const dbgRes = await fetch('/api/analyze_one/debug');
-        const dbg = await dbgRes.json();
-        const env = dbg && dbg.env ? dbg.env : {};
-        appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
-      } catch {}
-      throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
-    }
-    if (j && j.error) throw new Error(j.error);
-    // 디버깅: 실제 저장된 값 확인
-    const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
-    const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
-    // 실제로 저장된 항목 재확인
-    if (saved.length > 0) {
-      try {
-        const { data: verify } = await supabase.from('videos').select('material, hooking, narrative_structure, material_core_materials, material_lang_patterns').eq('id', id).single();
-        const actualSaved = [];
-        if (verify) {
-          if (verify.material) actualSaved.push('material');
-          if (verify.hooking) actualSaved.push('hooking');
-          if (verify.narrative_structure) actualSaved.push('narrative_structure');
-          if (Array.isArray(verify.material_core_materials) && verify.material_core_materials.length > 0) actualSaved.push('material_core_materials');
-          if (Array.isArray(verify.material_lang_patterns) && verify.material_lang_patterns.length > 0) actualSaved.push('material_lang_patterns');
+        const res = await fetchWithTimeout('/api/analyze_one', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ id, retry: retryCount }) 
+        }, 180000);
+        
+        let j = null; 
+        try { j = await res.json(); } catch {}
+        
+        if (res.ok) {
+          // 성공
+          if (retryCount > 0) {
+            appendAnalysisLog(`(${id}) ${retryCount}번 재시도 후 성공`);
+          }
+          // 성공 시 처리
+          if (j && j.error) throw new Error(j.error);
+          
+          // 디버깅: 실제 저장된 값 확인
+          const saved = Array.isArray(j?.saved_keys) ? j.saved_keys : [];
+          const skipped = Array.isArray(j?.skipped_keys) ? j.skipped_keys : [];
+          
+          // 실제로 저장된 항목 재확인
+          if (saved.length > 0) {
+            try {
+              const { data: verify } = await supabase.from('videos').select('material, hooking, narrative_structure, material_core_materials, material_lang_patterns').eq('id', id).single();
+              const actualSaved = [];
+              if (verify) {
+                if (verify.material) actualSaved.push('material');
+                if (verify.hooking) actualSaved.push('hooking');
+                if (verify.narrative_structure) actualSaved.push('narrative_structure');
+                if (Array.isArray(verify.material_core_materials) && verify.material_core_materials.length > 0) actualSaved.push('material_core_materials');
+                if (Array.isArray(verify.material_lang_patterns) && verify.material_lang_patterns.length > 0) actualSaved.push('material_lang_patterns');
+              }
+              if (actualSaved.length < saved.length) {
+                appendAnalysisLog(`(${id}) 저장 불일치: 서버=${saved.length}개, DB=${actualSaved.length}개 [실제: ${actualSaved.join(',')}]`);
         }
-        if (actualSaved.length < saved.length) {
-          appendAnalysisLog(`(${id}) 저장 불일치: 서버=${saved.length}개, DB=${actualSaved.length}개 [실제: ${actualSaved.join(',')}]`);
+    } catch {}
+          }
+          
+          return { ok: true, saved, skipped };
         }
-      } catch {}
+        
+        // 429 에러인 경우 재시도
+        if (res.status === 429 && retryCount < maxRetries) {
+          retryCount++;
+          const waitTime = Math.min(5000 * retryCount, 10000); // 5초, 10초 대기
+          appendAnalysisLog(`(${id}) 429 에러, ${waitTime/1000}초 후 재시도 (${retryCount}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, waitTime));
+          continue;
+        }
+        
+        // 다른 에러 또는 최대 재시도 초과
+        const stage = j && j.stage ? j.stage : '';
+        const err = j && j.error ? j.error : '';
+        const trace = j && j.trace ? String(j.trace).slice(0, 300) : '';
+        appendAnalysisLog(`(${id}) 서버오류 http ${res.status} stage=${stage} ${err}`);
+        if (trace) appendAnalysisLog(`trace: ${trace}`);
+        
+        // 환경 변수 진단(간헐)
+        if (res.status >= 500) {
+          try {
+            const dbgRes = await fetch('/api/analyze_one/debug');
+            const dbg = await dbgRes.json();
+            const env = dbg && dbg.env ? dbg.env : {};
+            appendAnalysisLog(`[env] SUPABASE_URL=${env.has_SUPABASE_URL?'OK':'MISS'}, SERVICE_ROLE=${env.has_SUPABASE_SERVICE_ROLE_KEY?'OK':'MISS'}, ANON=${env.has_SUPABASE_ANON_KEY?'OK':'MISS'}, GEMINI=${env.has_GEMINI_API_KEY?'OK':'MISS'}`);
+          } catch {}
+        }
+        
+        throw new Error(`http ${res.status} ${j?.error || ''}`.trim());
+        
+      } catch (e) {
+        lastError = e;
+        if (retryCount < maxRetries && e.message && e.message.includes('429')) {
+          retryCount++;
+          const waitTime = Math.min(5000 * retryCount, 10000);
+          appendAnalysisLog(`(${id}) 예외 429, ${waitTime/1000}초 후 재시도 (${retryCount}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, waitTime));
+          continue;
+        }
+        throw e;
+      }
     }
-    return { ok: true, saved, skipped };
+    
+    // 모든 재시도 실패
+    throw lastError || new Error('분석 실패');
   };
   const { done, failed: failedCnt, aborted } = await processInBatches(ids, worker, {
     concurrency: conc,
@@ -1697,7 +1839,7 @@ async function runAnalysisForIds(ids, opts = {}) {
   // 완료 처리
   const finalMsg = `분석 완료: 성공 ${success}, 실패 ${failed}, 스킵 ${skipped}`;
   analysisStatus.textContent = finalMsg;
-  analysisStatus.style.color = failed ? 'orange' : 'green';
+    analysisStatus.style.color = failed ? 'orange' : 'green';
   updateAnalysisProgress(ids.length, ids.length, `완료`);
   
   // 배너 자동 숨김
@@ -1720,7 +1862,7 @@ runAnalysisSelectedBtn?.addEventListener('click', async () => {
 });
 
 runAnalysisAllBtn?.addEventListener('click', async () => {
-  const ids = currentData.map(v => v.id);
+        const ids = currentData.map(v => v.id);
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
   if (!BULK_SILENT) {
   const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
