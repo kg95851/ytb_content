@@ -121,6 +121,12 @@
                     </div>
                     <input type="text" id="data-search-input" placeholder="제목, 채널명 등으로 검색...">
                     <input type="date" id="admin-update-date-filter" title="업데이트 날짜" />
+                    <select id="admin-status-filter" style="margin-left:.5rem;">
+                        <option value="">상태: 전체</option>
+                        <option value="analyzed">분석완료</option>
+                        <option value="has_transcript">대본있음</option>
+                        <option value="no_transcript">대본없음</option>
+                    </select>
                     <select id="admin-sort-select" style="margin-left:.5rem;">
                         <option value="update_desc">정렬: 업데이트 최신순</option>
                         <option value="date_desc">정렬: 게시일 최신순</option>
