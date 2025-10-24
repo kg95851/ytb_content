@@ -13,6 +13,7 @@ const dataTableContainer = document.getElementById('data-table-container');
 const adminPaginationContainer = document.getElementById('admin-pagination-container');
 const dataSearchInput = document.getElementById('data-search-input');
 const adminUpdateDateFilter = document.getElementById('admin-update-date-filter');
+const adminStatusFilter = document.getElementById('admin-status-filter');
 const adminSortSelect = document.getElementById('admin-sort-select');
 const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const runAnalysisSelectedBtn = document.getElementById('run-analysis-selected-btn');
@@ -235,8 +236,27 @@ function favIdsForGroups(groups) {
 function getRowsForRender() {
   const query = String(dataSearchInput?.value || '').toLowerCase();
   const upd = String(adminUpdateDateFilter?.value || '');
+  const statusFilter = String(adminStatusFilter?.value || '');
+  
   let rows = query ? currentData.filter(v => (v.title || '').toLowerCase().includes(query) || (v.channel || '').toLowerCase().includes(query)) : currentData.slice();
   if (upd) rows = rows.filter(v => v.update_date && v.update_date.slice(0,10) === upd);
+  
+  // 상태 필터 적용
+  if (statusFilter) {
+    rows = rows.filter(v => {
+      const hasTranscript = !!(v.transcript_text && String(v.transcript_text).trim().length > 0);
+      const isAnalyzed = (Array.isArray(v.dopamine_graph) && v.dopamine_graph.length > 0) || v.material || v.hooking || v.narrative_structure;
+      const noTranscript = v.transcript_unavailable === true;
+      
+      switch(statusFilter) {
+        case 'analyzed': return isAnalyzed;
+        case 'has_transcript': return hasTranscript && !noTranscript;
+        case 'no_transcript': return noTranscript || !hasTranscript;
+        default: return true;
+      }
+    });
+  }
+  
   const groups = favSelectedGroups();
   if (groups.length) {
     const idSet = favIdsForGroups(groups);
@@ -723,6 +743,13 @@ adminUpdateDateFilter?.addEventListener('change', () => {
   saveAdminViewState();
 });
 
+adminStatusFilter?.addEventListener('change', () => {
+  adminCurrentPage = 1;
+  renderTable(getRowsForRender());
+  renderAdminPagination();
+  saveAdminViewState();
+});
+
 adminSortSelect?.addEventListener('change', () => {
   adminSortMode = adminSortSelect.value || 'update_desc';
   adminCurrentPage = 1;
@@ -849,12 +876,22 @@ uploadBtn.addEventListener('click', () => {
 
 async function processDataAndUpload(data) {
   uploadStatus.textContent = '변경사항 분석 중...';
-  // update_date 컬럼 존재 여부 확인(없으면 payload에서 제외)
-  let canWriteUpdateDate = false;
+  uploadStatus.style.color = '';
+  
+  // 타임아웃 방지를 위한 주기적 상태 업데이트
+  let progressInterval = setInterval(() => {
+    const dots = (uploadStatus.textContent.match(/\./g) || []).length;
+    const baseTxt = uploadStatus.textContent.replace(/\.+$/, '');
+    uploadStatus.textContent = baseTxt + '.'.repeat((dots % 3) + 1);
+  }, 500);
+  
   try {
-    const probe = await supabase.from('videos').select('update_date').limit(0);
-    canWriteUpdateDate = !probe.error;
-  } catch { canWriteUpdateDate = false; }
+    // update_date 컬럼 존재 여부 확인(없으면 payload에서 제외)
+    let canWriteUpdateDate = false;
+    try {
+      const probe = await supabase.from('videos').select('update_date').limit(0);
+      canWriteUpdateDate = !probe.error;
+    } catch { canWriteUpdateDate = false; }
 
   // 1) 입력 정규화
   const isEmptyStringValue = (v) => {
@@ -1048,10 +1085,17 @@ async function processDataAndUpload(data) {
     await new Promise(r => setTimeout(r, 60));
   }
 
+  clearInterval(progressInterval);
   uploadStatus.textContent = `완료: 삽입 ${inserted}, 누락 채움 업데이트 ${updated}`;
   uploadStatus.style.color = 'green';
   selectedFile = null; fileNameDisplay.textContent = ''; fileNameDisplay.classList.remove('active');
   fetchAndDisplayData();
+  } catch (e) {
+    clearInterval(progressInterval);
+    uploadStatus.textContent = '업로드 실패: ' + (e?.message || e);
+    uploadStatus.style.color = 'red';
+    throw e;
+  }
 }
 
 // ---------- Export JSON (download + Supabase Storage) ----------
@@ -1839,19 +1883,41 @@ async function runAnalysisForIds(ids, opts = {}) {
 }
 
 runAnalysisSelectedBtn?.addEventListener('click', async () => {
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('분석할 항목을 선택하세요.'); return; }
+  
+  // 작업 시작 전 초기화
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '분석 작업';
+  
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
   await runAnalysisForIds(ids, { large: useLarge });
 });
 
 runAnalysisAllBtn?.addEventListener('click', async () => {
-        const ids = currentData.map(v => v.id);
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
+  const ids = currentData.map(v => v.id);
   if (!ids.length) { alert('분석할 데이터가 없습니다.'); return; }
   if (!BULK_SILENT) {
-  const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
-  if (!ok) return;
+    const ok = confirm(`전체 ${ids.length}개 항목에 대해 분석을 실행할까요? 비용이 발생할 수 있습니다.`);
+    if (!ok) return;
   }
+  
+  // 작업 시작 전 초기화
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '전체 분석 작업';
+  
   const useLarge = LARGE_MODE && ids.length >= LARGE_THRESHOLD;
   // 전체 분석도 선택 분석과 동일한 키 기반 동시성 로직 사용
   await runAnalysisForIds(ids, { large: useLarge });
@@ -1908,8 +1974,16 @@ chipExport?.addEventListener('click', () => exportJsonBtn?.click());
 
 // --- 분리된 버튼: 선택 대본 추출 (YouTube API 경유, Gemini 미사용)
 ytTranscriptSelectedBtn?.addEventListener('click', async () => {
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('대본을 추출할 항목을 선택하세요.'); return; }
+  
+  // 작업 시작 전 초기화
   ABORT_CURRENT = false;
   CURRENT_TASK_NAME = '대본 추출';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `대본 추출 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
@@ -1976,9 +2050,17 @@ ytTranscriptSelectedBtn?.addEventListener('click', async () => {
 
 // --- 분리된 버튼: 선택 조회수 갱신 (YouTube Data API)
 ytViewsSelectedBtn?.addEventListener('click', async () => {
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
   const ids = Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
   if (!ids.length) { alert('조회수를 갱신할 항목을 선택하세요.'); return; }
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
+  
+  // 작업 시작 전 초기화
   ABORT_CURRENT = false;
   CURRENT_TASK_NAME = '조회수 갱신';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = `조회수 갱신 시작... (${ids.length}개)`; youtubeStatus.style.color = '';
@@ -2057,9 +2139,19 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
 
 // --- 전체 처리 버튼들 ---
 ytTranscriptAllBtn?.addEventListener('click', async () => {
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
   if (!BULK_SILENT) {
     if (!confirm('전체 대본을 추출할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   }
+  
+  // 작업 시작 전 초기화
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '전체 대본 추출';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 대본 추출 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 대본 추출 시작');
   // 1) ID 오름차순으로 정렬
@@ -2195,10 +2287,20 @@ async function autoRestartFullTranscript(intervalMs = 10 * 60 * 1000) {
 try { setTimeout(() => autoRestartFullTranscript(12 * 60 * 1000), 12 * 60 * 1000); } catch {}
 
 ytViewsAllBtn?.addEventListener('click', async () => {
+  // 이미 작업이 진행 중인지 확인
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  
   const keys = getStoredYoutubeApiKeys(); if (!keys.length) { alert('YouTube API 키를 설정하세요.'); return; }
   if (!BULK_SILENT) {
     if (!confirm('전체 조회수를 갱신할까요? 요청이 많아 시간이 걸릴 수 있습니다.')) return;
   }
+  
+  // 작업 시작 전 초기화
+  ABORT_CURRENT = false;
+  CURRENT_TASK_NAME = '전체 조회수 갱신';
   youtubeStatus.style.display = 'block'; youtubeStatus.textContent = '전체 조회수 갱신 시작...'; youtubeStatus.style.color = '';
   showAnalysisBanner('전체 조회수 갱신 시작');
         const ids = currentData.map(v => v.id);
