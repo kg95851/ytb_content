@@ -1454,7 +1454,13 @@ function getStoredKeysForRotation() {
 async function processInBatches(ids, worker, { concurrency = 6, onProgress, onItemDone } = {}) {
   let i = 0; let inFlight = 0; let done = 0; let failed = 0; let nextKeyIndex = 0; let startedAt = Date.now();
   const keys = getStoredKeysForRotation();
-    const results = [];
+  const results = [];
+  
+  // 작업 시작 시 배너가 표시되어 있는지 확인
+  const wasVisible = analysisBanner && !analysisBanner.classList.contains('hidden');
+  if (!wasVisible) {
+    console.warn('[processInBatches] 배너가 표시되지 않은 상태에서 작업 시작됨');
+  }
   
   // 키 사용 통계 추적
   const keyUsage = new Map();
@@ -1965,11 +1971,35 @@ runCommentsSelectedBtn?.addEventListener('click', async () => {
   analysisStatus.textContent = `댓글 수집 완료`;
 });
 
-// mirror actions on topbar chips
-chipRunSel?.addEventListener('click', () => runAnalysisSelectedBtn?.click());
-chipRunAll?.addEventListener('click', () => runAnalysisAllBtn?.click());
-chipTrSel?.addEventListener('click', () => ytTranscriptSelectedBtn?.click());
-chipVwSel?.addEventListener('click', () => ytViewsSelectedBtn?.click());
+// mirror actions on topbar chips (작업 진행 중 체크 추가)
+chipRunSel?.addEventListener('click', () => {
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  runAnalysisSelectedBtn?.click();
+});
+chipRunAll?.addEventListener('click', () => {
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  runAnalysisAllBtn?.click();
+});
+chipTrSel?.addEventListener('click', () => {
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  ytTranscriptSelectedBtn?.click();
+});
+chipVwSel?.addEventListener('click', () => {
+  if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
+    return;
+  }
+  ytViewsSelectedBtn?.click();
+});
 chipExport?.addEventListener('click', () => exportJsonBtn?.click());
 
 // --- 분리된 버튼: 선택 대본 추출 (YouTube API 경유, Gemini 미사용)
@@ -2141,6 +2171,7 @@ ytViewsSelectedBtn?.addEventListener('click', async () => {
 ytTranscriptAllBtn?.addEventListener('click', async () => {
   // 이미 작업이 진행 중인지 확인
   if (!ABORT_CURRENT && analysisBanner && !analysisBanner.classList.contains('hidden')) {
+    console.log('[전체 대본 추출] 이미 진행 중인 작업이 있음');
     alert('이미 작업이 진행 중입니다. 중단 버튼을 누른 후 다시 시도하세요.');
     return;
   }
@@ -2265,19 +2296,31 @@ ytTranscriptAllBtn?.addEventListener('click', async () => {
 // --- 자동 재시작(체크포인트 이어받기) 유틸 ---
 async function autoRestartFullTranscript(intervalMs = 10 * 60 * 1000) {
   try {
-    // 진행 중이 아니면 실행
+    // 이미 작업이 진행 중이면 실행하지 않음
     if (ABORT_CURRENT) return;
+    if (analysisBanner && !analysisBanner.classList.contains('hidden')) return;
+    
     // 체크포인트가 존재하고 일정 시간 경과 시 자동 재개
     const ck = await loadTranscriptCheckpoint();
     if (!ck || !ck.content) return;
-    // 간단: 클릭 핸들러 재호출 대신 내부 로직 재사용을 위해 버튼 이벤트를 트리거
-    // 안전: 사용자 동작 없을 때만
-    const now = Date.now();
+    
     const lastIndex = Number(ck.content.last_index || 0);
     if (lastIndex >= 0) {
-      try { document.getElementById('yt-transcript-all-btn')?.click(); } catch {}
+      // 직접 클릭하지 않고 작업이 진행 중이 아닐 때만 실행
+      console.log('[자동 재시작] 체크포인트에서 대본 추출 재개 시도');
+      
+      // 작업이 진행 중이 아닌 경우에만 재시작
+      if (!analysisBanner || analysisBanner.classList.contains('hidden')) {
+        try { 
+          document.getElementById('yt-transcript-all-btn')?.click(); 
+        } catch (e) {
+          console.error('[자동 재시작] 실패:', e);
+        }
+      }
     }
-  } catch {}
+  } catch (e) {
+    console.error('[자동 재시작] 오류:', e);
+  }
   finally {
     setTimeout(() => autoRestartFullTranscript(intervalMs), intervalMs);
   }
