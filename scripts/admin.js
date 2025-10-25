@@ -121,8 +121,8 @@ let LARGE_MODE = true;
 let LARGE_THRESHOLD = 200;  // 200개 이상부터 대용량 모드
 // 전체 작업 시 확인창 비활성화(자동 진행)
 let BULK_SILENT = true;
-let CONC_NORMAL = 6;  // 기본 동시성 (안정적)
-let CONC_LARGE = 8;   // 대용량 동시성 (안정적)
+let CONC_NORMAL = 8;  // 기본 동시성 (균형)
+let CONC_LARGE = 10;   // 대용량 동시성 (성능 우선)
 let SEQ_ANALYSIS = false; // 기본: 병렬 실행
 
 function loadPerfSettings() {
@@ -1695,30 +1695,50 @@ async function runAnalysisForIds(ids, opts = {}) {
     keyCount = 1; // 기본값
   }
   
-  // 키 개수별 권장 동시성 (안정성 우선, 점진적 증가)
+  // 키 개수별 권장 동시성 (최적화된 설정)
   // Gemini Flash: 분당 15개, 일일 1500개 제한
-  // 안전 마진 50% 적용하여 안정적 처리
+  // 15개 키 = 분당 225개 처리 가능 (이론상)
+  // 안전 마진 30-40% 적용하여 안정성 확보
   let recommendedConc = 1;
   if (keyCount >= 20) {
-    recommendedConc = 8; // 20개 이상: 8 동시 (키당 0.4개)
+    recommendedConc = 10; // 20개 이상: 10 동시 (키당 0.5개)
   } else if (keyCount >= 15) {
-    recommendedConc = 3; // 15-19개: 3 동시 (안정성 최우선) (키당 0.46개)
+    // 15개 키 최적 설정: 동시성 4-6 권장
+    // 동시성 4 = 각 키가 분당 4개 처리 (제한의 27%, 매우 안정적)
+    // 동시성 5 = 각 키가 분당 5개 처리 (제한의 33%, 안정적) 
+    // 동시성 6 = 각 키가 분당 6개 처리 (제한의 40%, 균형잡힌)
+    recommendedConc = 5; // 15-19개: 5 동시 (안정성과 속도 균형)
+    // 예상 처리량: 시간당 약 250-300개 (1000개 = 약 3.5-4시간)
   } else if (keyCount >= 10) {
-    recommendedConc = 6; // 10-14개: 6 동시 (키당 0.6개)
+    recommendedConc = 5; // 10-14개: 5 동시 (키당 0.5개)
   } else if (keyCount >= 5) {
     recommendedConc = 4; // 5-9개: 4 동시 (키당 0.8개)
   } else if (keyCount >= 3) {
-    recommendedConc = 2; // 3-4개: 2 동시 (키당 0.66개)
+    recommendedConc = 3; // 3-4개: 3 동시 (키당 1개)
   }
   
   // 동시성 로그 출력
   console.log(`API Keys: ${keyCount}개, 권장 동시성: ${recommendedConc}`);
-  appendAnalysisLog(`API 키 ${keyCount}개 감지, 동시성 ${recommendedConc}로 설정`);
   
-  // 최종 동시성 결정 (대용량 모드에서는 더 높은 동시성 허용)
+  // 수동 동시성 오버라이드 체크 (localStorage에서)
+  let manualConc = null;
+  try {
+    const manual = localStorage.getItem('analysis_manual_concurrency');
+    if (manual) {
+      manualConc = parseInt(manual);
+      if (manualConc >= 1 && manualConc <= 20) {
+        console.log(`수동 동시성 설정 사용: ${manualConc}`);
+        appendAnalysisLog(`수동 동시성 ${manualConc} 사용 (권장: ${recommendedConc})`);
+      }
+    }
+  } catch {}
+  
+  // 최종 동시성 결정
   const maxConc = (opts && opts.large) ? Math.max(CONC_LARGE, recommendedConc) : CONC_NORMAL;
-  const conc = SEQ_ANALYSIS ? 1 : Math.min(recommendedConc, maxConc);
-  console.log(`Using concurrency ${conc} for estimated ${keyCount} API keys`);
+  const conc = manualConc || (SEQ_ANALYSIS ? 1 : Math.min(recommendedConc, maxConc));
+  
+  appendAnalysisLog(`API 키 ${keyCount}개, 동시성 ${conc}로 설정`);
+  console.log(`Using concurrency ${conc} for ${keyCount} API keys`);
   const worker = async (id) => {
     if (ABORT_CURRENT) throw new Error('abort');
     const pre = preById.get(id);
@@ -1742,10 +1762,10 @@ async function runAnalysisForIds(ids, opts = {}) {
     } catch {}
     appendAnalysisLog(`(${id}) 서버 분석 요청 시작`);
     
-    // 429 에러 시 재시도 로직
+    // 429 에러 시 재시도 로직 (스마트 백오프)
     let lastError = null;
     let retryCount = 0;
-    const maxRetries = 2; // 최대 2번 재시도 (총 3번 시도)
+    const maxRetries = 3; // 최대 3번 재시도 (총 4번 시도)
     
     while (retryCount <= maxRetries) {
       try {
@@ -1791,10 +1811,11 @@ async function runAnalysisForIds(ids, opts = {}) {
           return { ok: true, saved, skipped };
         }
         
-        // 429 에러인 경우 재시도
+        // 429 에러인 경우 재시도 (점진적 백오프)
         if (res.status === 429 && retryCount < maxRetries) {
           retryCount++;
-          const waitTime = Math.min(5000 * retryCount, 10000); // 5초, 10초 대기
+          // 재시도 횟수에 따라 대기 시간 증가: 3초, 5초, 8초
+          const waitTime = Math.min(3000 + 2000 * retryCount, 8000);
           appendAnalysisLog(`(${id}) 429 에러, ${waitTime/1000}초 후 재시도 (${retryCount}/${maxRetries})`);
           await new Promise(r => setTimeout(r, waitTime));
           continue;
@@ -1823,7 +1844,7 @@ async function runAnalysisForIds(ids, opts = {}) {
         lastError = e;
         if (retryCount < maxRetries && e.message && e.message.includes('429')) {
           retryCount++;
-          const waitTime = Math.min(5000 * retryCount, 10000);
+          const waitTime = Math.min(3000 + 2000 * retryCount, 8000);
           appendAnalysisLog(`(${id}) 예외 429, ${waitTime/1000}초 후 재시도 (${retryCount}/${maxRetries})`);
           await new Promise(r => setTimeout(r, waitTime));
           continue;
